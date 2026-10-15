@@ -78,7 +78,7 @@ echo
 echo "Installed:  $TARGET"
 echo "Version:    $(read_key HBForkVersion) (bundle $(read_key CFBundleShortVersionString), build $(read_key CFBundleVersion))"
 echo "Commit:     $(read_key HBGitCommit)"
-echo "Signed by:  $(codesign -dv "$TARGET" 2>&1 | sed -n 's/^Authority=//p' | head -n 1) (team $(codesign -dv "$TARGET" 2>&1 | sed -n 's/^TeamIdentifier=//p'))"
+echo "Signed by:  $(codesign -dvv "$TARGET" 2>&1 | sed -n 's/^Authority=//p' | head -n 1) (team $(codesign -dv "$TARGET" 2>&1 | sed -n 's/^TeamIdentifier=//p'))"
 echo "Sandbox:    $(codesign -d --entitlements - --xml "$TARGET" 2>/dev/null | grep -q app-sandbox && echo ON || echo off)"
 echo "Running:    $(pgrep -x "Hidden Bar" >/dev/null && echo "yes (pid $(pgrep -x "Hidden Bar"))" || echo no)"
 echo "Prefs backup: $BACKUP_DIR/$BUNDLE_ID-$STAMP.plist"
