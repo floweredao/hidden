@@ -15,4 +15,12 @@ extension Bundle {
     var buildVersionNumber: String? {
         return infoDictionary?["CFBundleVersion"] as? String
     }
+    /// Fork display version, e.g. "1.11.1-fw.1". CFBundleShortVersionString must stay numeric.
+    var forkVersionNumber: String? {
+        return infoDictionary?["HBForkVersion"] as? String
+    }
+    /// Source commit stamped by the "Record Git Commit" build phase.
+    var gitCommit: String? {
+        return infoDictionary?["HBGitCommit"] as? String
+    }
 }
