@@ -137,3 +137,6 @@ DerivedData/
 /docs/specs/
 /docs/implementation-notes/
 /.planning/
+
+# Local scratch space for agent runs
+.work/
