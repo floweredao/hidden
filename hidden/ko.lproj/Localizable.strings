@@ -1,0 +1,29 @@
+/* 
+  Localizable.strings
+  Hidden Bar
+
+  Copyright © 2020 Dwarves Foundation. All rights reserved.
+*/
+
+"Preferences..." = "설정...";
+"Toggle Auto Collapse" = "자동 접기 켜기/끄기";
+"Enable Auto Collapse" = "자동 접기 켜기";
+"Disable Auto Collapse" = "자동 접기 끄기";
+"Quit" = "종료";
+"Set Shortcut" = "단축키 설정";
+"Show Notch Items" = "노치에 가린 항목 보기";
+"Notch Overflow" = "노치 넘침";
+"Hidden Behind Notch (%d)" = "노치에 가려짐 (%d)";
+"Visible (%d)" = "보임 (%d)";
+"No items found (grant Accessibility permission)" = "항목이 없어요 (손쉬운 사용 권한을 허용해 주세요)";
+"Could not update the login item" = "로그인 항목을 바꾸지 못했어요";
+"Check System Settings > General > Login Items and make sure Hidden Bar is allowed." = "시스템 설정 > 일반 > 로그인 항목에서 Hidden Bar가 허용되어 있는지 확인해 주세요.";
+"Tutorial text" = "
+항상 숨김 기능으로 아이콘을 깔끔하게 정리할 수 있어요. 설정 방법은 이래요.
+켜는 방법:
+1. 항상 숨김 막대 “|”(반투명 색 막대)를 켜요.
+2. ⌘를 누른 채 그 막대를 일반 막대의 왼쪽으로 끌어 놓고, 사라지게 할 아이콘을 그 막대 왼쪽으로 옮겨요.
+3. 마지막으로 접기 아이콘 “<”를 오른쪽 클릭하면 숨겨져요.
+항상 숨김 아이콘을 보는 방법:
+1. “<” 아이콘을 다시 오른쪽 클릭하면 보이고, 한 번 더 하면 다시 숨겨져요. 즐겁게 쓰세요 😉!
+";
