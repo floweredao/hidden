@@ -21,6 +21,8 @@
 
 ### Added
 - Korean localization.
+- Fork version `1.11.1-fw.1` (build 16001); the About tab shows it with the source commit.
+- `scripts/install-local.sh` builds, checks and installs the unsandboxed `Release-Direct` app.
 
 ## v1.11.1 (2026-09-18)
 

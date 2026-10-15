@@ -46,6 +46,14 @@ brew install --cask hiddenbar
 - Open and drag the app to the Applications folder.
 - Launch Hidden and drag the icon in your menu bar (hold CMD) to the right so it is between some other icons.
 
+#### Build and install from source
+
+`scripts/install-local.sh` builds the unsandboxed `Release-Direct` app, refuses to install it if it carries the App Sandbox entitlement, backs up your settings, quits the running Hidden Bar, moves the old app to the Trash, installs and launches the new one, then prints its version, commit and signature. It signs with your Apple Development identity.
+
+```sh
+scripts/install-local.sh
+```
+
 ## 🕹 Usage
 
 * `⌘` + drag to move the Hidden icons around in the menu bar.

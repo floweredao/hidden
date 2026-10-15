@@ -394,6 +394,7 @@
 				929113ED21F9D04100173149 /* Sources */,
 				929113EE21F9D04100173149 /* Frameworks */,
 				929113EF21F9D04100173149 /* Resources */,
+				F0A1B2C3D4E5F60718293A4C /* Record Git Commit */,
 			);
 			buildRules = (
 			);
@@ -517,6 +518,29 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		F0A1B2C3D4E5F60718293A4C /* Record Git Commit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
+			);
+			name = "Record Git Commit";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Stamp the source commit into the built Info.plist (HBGitCommit) for the About tab.\ncommit=$(git -C \"$SRCROOT\" rev-parse --short=7 HEAD 2>/dev/null || echo unknown)\ngit -C \"$SRCROOT\" diff-index --quiet HEAD -- 2>/dev/null || commit=\"$commit-dirty\"\nplutil -replace HBGitCommit -string \"$commit\" \"$TARGET_BUILD_DIR/$INFOPLIST_PATH\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		637C6E21964C904F331A1E4E /* Sources */ = {
@@ -820,7 +844,7 @@
 				CODE_SIGN_IDENTITY = "Mac Developer";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 16;
+				CURRENT_PROJECT_VERSION = 16001;
 				DEVELOPMENT_TEAM = W777S7V8TN;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = hidden/Info.plist;
@@ -829,6 +853,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				HIDDEN_FORK_VERSION = "$(MARKETING_VERSION)-fw.1";
 				MARKETING_VERSION = 1.11.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dwarvesv.minimalbar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -846,7 +871,7 @@
 				CODE_SIGN_IDENTITY = "Mac Developer";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 16;
+				CURRENT_PROJECT_VERSION = 16001;
 				DEVELOPMENT_TEAM = W777S7V8TN;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = hidden/Info.plist;
@@ -855,6 +880,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				HIDDEN_FORK_VERSION = "$(MARKETING_VERSION)-fw.1";
 				MARKETING_VERSION = 1.11.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dwarvesv.minimalbar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -935,7 +961,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 16;
+				CURRENT_PROJECT_VERSION = 16001;
 				DEVELOPMENT_TEAM = W777S7V8TN;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = hidden/Info.plist;
@@ -944,6 +970,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				HIDDEN_FORK_VERSION = "$(MARKETING_VERSION)-fw.1";
 				MARKETING_VERSION = 1.11.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dwarvesv.minimalbar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1021,7 +1048,7 @@
 				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 16;
+				CURRENT_PROJECT_VERSION = 16001;
 				DEVELOPMENT_TEAM = W777S7V8TN;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = hidden/Info.plist;
@@ -1030,6 +1057,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				HIDDEN_FORK_VERSION = "$(MARKETING_VERSION)-fw.1";
 				MARKETING_VERSION = 1.11.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dwarvesv.minimalbar;
 				PRODUCT_NAME = "$(TARGET_NAME)";

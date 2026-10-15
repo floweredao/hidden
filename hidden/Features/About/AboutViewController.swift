@@ -24,9 +24,10 @@ class AboutViewController: NSViewController {
     }
     
     private func setupUI() {
-        guard let version = Bundle.main.releaseVersionNumber,
+        guard let version = Bundle.main.forkVersionNumber ?? Bundle.main.releaseVersionNumber,
                 let buildNumber = Bundle.main.buildVersionNumber else { return }
-        lblVersion.stringValue += " \(version) (\(buildNumber))"
+        let build = [buildNumber, Bundle.main.gitCommit].compactMap { $0 }.joined(separator: " · ")
+        lblVersion.stringValue += " \(version) (\(build))"
     }
     
 }
