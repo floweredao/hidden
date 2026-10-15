@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Right-clicking the arrow shows and hides the always-hidden section again, as the in-app tutorial says. It had moved to Option-click in v1.11, and Option-click never worked on macOS 27, whose status-bar clicks arrive without modifier flags. Option-click now opens the context menu, and right-click still opens it when the always-hidden section is off.
+- macOS 27: hiding the always-hidden section now takes its `|` separator with it, while expanded too, instead of leaving it in the bar.
+- macOS 27: relaunching with the always-hidden section hidden no longer hides almost every icon; the section is hidden once the separator is back in place.
+- macOS 27: turning the always-hidden section off no longer keeps its apps hidden while expanded.
+- macOS 27: with the always-hidden section hidden, apps launched while expanded show up, and icons ⌘-dragged across the arrow while expanded count on the next collapse.
+- macOS 27: Time Machine and other SystemUIServer extras stay visible when placed right of the arrow.
+- macOS 27: collapsing no longer waits for every running app's Accessibility reply in turn.
+- Launch: the bar is set up after the defaults and the layout direction are known, so the arrow no longer starts out pointing the wrong way, and a second copy that quits at once no longer creates status items first.
+- The auto-collapse timer no longer loads the Preferences window into memory when Preferences was never opened.
+- Display changes re-size the always-hidden zone while expanded too, not only while collapsed.
+- Notch Overflow: "Show Notch Items" no longer disappears while an external display is focused, and one busy app can no longer freeze Hidden Bar while the list is built.
+- Opening Hidden Bar again while it runs now shows Preferences.
+
 ## v1.11.1 (2026-09-18)
 
 ### Fixed

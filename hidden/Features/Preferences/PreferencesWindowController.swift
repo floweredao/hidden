@@ -17,8 +17,14 @@ class PreferencesWindowController: NSWindowController {
     
     static let shared: PreferencesWindowController = {
         let wc = NSStoryboard(name:"Main", bundle: nil).instantiateController(withIdentifier: "MainWindow") as! PreferencesWindowController
+        existing = wc
         return wc
     }()
+
+    // The shared controller if preferences were ever opened. Checking this does
+    // not load the storyboard, which the auto-collapse timer would otherwise do
+    // on its first tick even when preferences were never shown.
+    private(set) static var existing: PreferencesWindowController?
     
     private var menuSegment: MenuSegment = .general {
         didSet {

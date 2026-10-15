@@ -65,7 +65,7 @@ class StatusBarController: MenuBarItemProvider {
     // it is on screen. isWindowLoaded short-circuits without force-loading the
     // window when preferences were never opened.
     private var isPreferencesWindowVisible: Bool {
-        let wc = PreferencesWindowController.shared
+        guard let wc = PreferencesWindowController.existing else { return false }
         return wc.isWindowLoaded && (wc.window?.isVisible ?? false)
     }
     
@@ -77,11 +77,14 @@ class StatusBarController: MenuBarItemProvider {
         setupHoverToExpandIfEnabled()
         NotificationCenter.default.addObserver(self, selector: #selector(handleScreenParametersChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateAutoHide), name: .prefsChanged, object: nil)
+        // Sections are read from where the items sit, so wait until macOS has put
+        // them back in place before hiding the always-hidden section; read at
+        // launch, the separator has no position yet.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            if Preferences.areSeparatorsHidden { self?.hideSeparators() }
             self?.collapseMenuBar()
         }
 
-        if Preferences.areSeparatorsHidden {hideSeparators()}
         autoCollapseIfNeeded()
     }
 
@@ -118,13 +121,9 @@ class StatusBarController: MenuBarItemProvider {
     }
     
     @objc private func handleScreenParametersChanged() {
-        // Re-apply the recomputed length to the LIVE item when collapsed, or a
-        // display hot-plug leaves the separator at a stale length (PR #354).
-        let wasCollapsed = isCollapsed
+        // The engine re-applies recomputed lengths to the LIVE items, or a
+        // display hot-plug leaves them at a stale length (PR #354).
         menuBarEngine.invalidateLayout()
-        if wasCollapsed && Preferences.areSeparatorsHidden {
-            menuBarEngine.updateAlwaysHiddenSection(enabled: Preferences.alwaysHiddenSectionEnabled, separatorHidden: true)
-        }
     }
     
     private func restoreRemovedStatusItems() {
@@ -162,16 +161,15 @@ class StatusBarController: MenuBarItemProvider {
         let event = NSApp.currentEvent
         // AXPress synthesis carries no NSEvent; the resolver maps nil to .toggle
         // so VoiceOver can operate the bar.
-        switch ExpandCollapseActionResolver.action(eventType: event?.type, optionPressed: event?.modifierFlags.contains(.option) ?? false) {
+        let modifiers = ExpandCollapseActionResolver.modifiers(eventFlags: event?.modifierFlags, liveFlags: NSEvent.modifierFlags)
+        switch ExpandCollapseActionResolver.action(eventType: event?.type, modifiers: modifiers, alwaysHiddenSectionEnabled: Preferences.alwaysHiddenSectionEnabled) {
         case .toggle:
             self.expandCollapseIfNeeded()
         case .contextMenu:
-            // Right-click opens the same context menu the separator has (#356),
-            // making settings reachable from the control everyone clicks.
-            // The separators/always-hidden toggle stays on option-click.
+            // The same context menu the separator has, so settings stay
+            // reachable on macOS 27, where the separator is gone.
             showContextMenu(from: sender)
         case .toggleSeparators:
-            // Both option+left and option+right land here: separators toggle.
             self.showHideSeparatorsAndAlwayHideArea()
         }
     }
@@ -372,27 +370,42 @@ class StatusBarController: MenuBarItemProvider {
 //MARK: - Alway hide feature
 extension StatusBarController {
     private func setupAlwayHideStatusBar() {
-        NotificationCenter.default.addObserver(self, selector: #selector(toggleStatusBarIfNeeded), name: .alwayHideToggle, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(alwaysHiddenSectionToggled), name: .alwayHideToggle, object: nil)
         toggleStatusBarIfNeeded()
     }
-    @objc private func toggleStatusBarIfNeeded() {
+
+    // Turning the section on shows its separator so it can be ⌘-dragged into
+    // place; the saved "hide separators" state is reset to match, or the next
+    // right-click would only flip the preference and appear to do nothing.
+    @objc private func alwaysHiddenSectionToggled() {
+        if Preferences.alwaysHiddenSectionEnabled {
+            Preferences.areSeparatorsHidden = false
+        }
+        toggleStatusBarIfNeeded()
+    }
+
+    private func toggleStatusBarIfNeeded() {
         if Preferences.alwaysHiddenSectionEnabled {
             if let existing = self.btnAlwaysHidden {
                 NSStatusBar.system.removeStatusItem(existing)
             }
             self.btnAlwaysHidden = NSStatusBar.system.statusItem(withLength: 0)
-            menuBarEngine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
             if let button = btnAlwaysHidden?.button {
                 button.image = self.imgIconLine
                 button.appearsDisabled = true
             }
             self.btnAlwaysHidden?.autosaveName = "hiddenbar_terminate"
             self.btnAlwaysHidden?.isVisible = true
+            // Last, so the engine decides the new item's width.
+            menuBarEngine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
         } else {
             if let existing = self.btnAlwaysHidden {
                 NSStatusBar.system.removeStatusItem(existing)
             }
             self.btnAlwaysHidden = nil
+            // The engine must forget the section too, or macOS 27 keeps hiding
+            // its apps while expanded after the section is switched off.
+            menuBarEngine.updateAlwaysHiddenSection(enabled: false, separatorHidden: Preferences.areSeparatorsHidden)
         }
     }
 }
