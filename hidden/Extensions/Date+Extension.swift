@@ -11,12 +11,12 @@ import Foundation
 extension Date {
     static func dateString() -> String {
         let dateFormater = DateFormatter()
-        dateFormater.dateFormat = "EEE dd MMM"
+        dateFormater.setLocalizedDateFormatFromTemplate("EEEddMMM")
         return dateFormater.string(from: Date())
     }
     static func timeString() -> String {
         let dateFormater = DateFormatter()
-        dateFormater.dateFormat = "hh:mm a"
+        dateFormater.timeStyle = .short
         return dateFormater.string(from: Date())
     }
 }
