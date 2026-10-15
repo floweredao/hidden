@@ -54,6 +54,7 @@ class PreferencesViewController: NSViewController {
         super.viewDidLoad()
         updateData()
         loadHotkey()
+        layOutTutorialArea()
         createTutorialView()
         // The row lives in the storyboard alongside the other Settings
         // checkboxes; hide it on hardware where the feature can't apply.
@@ -223,6 +224,25 @@ extension PreferencesViewController {
 
 //MARK: - Show tutorial
 extension PreferencesViewController {
+
+    // The window uses a full-size content view, so the tutorial box runs under
+    // the toolbar. The storyboard pins the mock menu bar 38pt below the box's
+    // top, which sat clear of the old toolbar; the taller macOS 26+ toolbar
+    // covers that spot, so pin it below the safe area instead. The window also
+    // sizes itself to the Settings rows, which can be narrower than the
+    // always-hidden tutorial (its leftmost label was cut off), so keep it wide
+    // enough for the tutorial.
+    private func layOutTutorialArea() {
+        if let box = statusBarStackView.superview {
+            box.constraints
+                .filter { $0.firstItem === statusBarStackView && $0.firstAttribute == .top }
+                .forEach { $0.isActive = false }
+        }
+        NSLayoutConstraint.activate([
+            statusBarStackView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            view.widthAnchor.constraint(greaterThanOrEqualToConstant: 660)
+        ])
+    }
     
     func createTutorialView() {
         if Preferences.alwaysHiddenSectionEnabled {

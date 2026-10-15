@@ -15,6 +15,12 @@
 - Display changes re-size the always-hidden zone while expanded too, not only while collapsed.
 - Notch Overflow: "Show Notch Items" no longer disappears while an external display is focused, and one busy app can no longer freeze Hidden Bar while the list is built.
 - Opening Hidden Bar again while it runs now shows Preferences.
+- Preferences: the menu-bar illustration no longer sits under the taller macOS 26+ toolbar, and the window stays wide enough that "Always Hidden" is no longer cut off at the left edge.
+- Preferences: the Notch Overflow checkbox now says Option-click, which opens the menu with "Show Notch Items" in every setup.
+- The illustration's clock follows the system's date and time format.
+
+### Added
+- Korean localization.
 
 ## v1.11.1 (2026-09-18)
 

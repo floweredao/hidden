@@ -14,7 +14,22 @@ xcodebuild -project 'Hidden Bar.xcodeproj' -scheme 'Hidden Bar' \
   -configuration Debug build
 ```
 
-Both must exit 0 with **no** `MACOSX_DEPLOYMENT_TARGET` override; the floor is
+To install a build on your own Mac, build `Release-Direct`, never `Release`.
+`Release` is the sandboxed App Store configuration: on macOS 27 it hides
+nothing at all, in either section.
+
+```sh
+xcodebuild -project 'Hidden Bar.xcodeproj' -scheme 'Hidden Bar' \
+  -configuration Release-Direct build
+codesign -d --entitlements - 'Hidden Bar.app' | grep app-sandbox  # must print nothing
+```
+
+A sandboxed build keeps its settings in
+`~/Library/Containers/com.dwarvesv.minimalbar`, the direct build in
+`~/Library/Preferences`, so switching between them loses the settings unless
+you copy them across.
+
+Both Debug builds above must exit 0 with **no** `MACOSX_DEPLOYMENT_TARGET` override; the floor is
 13.0 in the project file. The single expected warning is the deliberately
 deprecated `SMLoginItemSetEnabled(false)` call that cleans up legacy installs.
 
