@@ -78,9 +78,16 @@ final class LegacyLengthEngine: MenuBarEngine {
         return MenuBarOrder.isItem(items?.alwaysHiddenItem, onHiddenSideOf: items?.separatorItem)
     }
 
+    // Each inflated item is re-sized on its own: the always-hidden one stays
+    // inflated while expanded with "hide separators" on, and must cover a newly
+    // attached wider display then too.
     func invalidateLayout() {
-        guard state == .collapsed else { return }
-        items?.separatorItem.length = collapsedLength
+        if state == .collapsed {
+            items?.separatorItem.length = collapsedLength
+        }
+        if let alwaysHidden = items?.alwaysHiddenItem, alwaysHidden.length > expandedLength {
+            alwaysHidden.length = collapsedLength
+        }
     }
 
     // After a collapse, confirm on the next runloop tick (so layout settles) that

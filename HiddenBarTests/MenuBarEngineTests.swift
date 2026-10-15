@@ -136,6 +136,16 @@ final class MenuBarLayoutResolverTests: XCTestCase {
         XCTAssertEqual(layout.sections["com.pair"], .hidden)
     }
 
+    // SystemUIServer's legacy extras (Time Machine...) have no system item
+    // identifier, so they must follow the arrow like any app.
+    func testSystemUIServerExtrasFollowTheArrow() {
+        let layout = MenuBarLayoutResolver.resolve(
+            inventory: [item("com.apple.systemuiserver", x: 1400), item("com.apple.controlcenter", x: 1100)],
+            separatorFrame: separator, alwaysHiddenSeparatorFrame: nil,
+            isLTR: true, excludingBundle: nil)
+        XCTAssertEqual(layout.sections, ["com.apple.systemuiserver": .visible])
+    }
+
     func testSkipsOwnSystemAndUnidentifiedItems() {
         let layout = MenuBarLayoutResolver.resolve(
             inventory: [item("com.dwarvesv.minimalbar", x: 1100), item("com.apple.MenuBarAgent", x: 1100),
@@ -158,6 +168,8 @@ final class NativeVisibilityEngineTests: XCTestCase {
     private var items: FakeItems!
     private var inventory: FakeInventory!
     private var visibility: FakeVisibility!
+    private var running: [String] = []
+    private let launches = NotificationCenter()
 
     override func setUp() {
         super.setUp()
@@ -165,6 +177,7 @@ final class NativeVisibilityEngineTests: XCTestCase {
         inventory = FakeInventory()
         inventory.items = [item("com.always", x: 900), item("com.hidden", x: 1100), item("com.visible", x: 1400)]
         visibility = FakeVisibility()
+        running = []
     }
 
     private func makeEngine() -> NativeVisibilityEngine {
@@ -172,7 +185,9 @@ final class NativeVisibilityEngineTests: XCTestCase {
         return NativeVisibilityEngine(items: items, inventory: inventory, visibility: visibility,
                                       ownBundleIdentifier: "com.dwarvesv.minimalbar",
                                       itemFrame: { $0 === items.toggleItem ? separator : alwaysHiddenSeparator },
-                                      isLTR: { true })
+                                      isLTR: { true },
+                                      runningBundleIdentifiers: { [unowned self] in self.running },
+                                      launchNotifications: launches)
     }
 
     func testCollapseKeepsOnlyVisibleAppsAndSystemItems() {
@@ -279,17 +294,110 @@ final class NativeVisibilityEngineTests: XCTestCase {
         XCTAssertTrue(newIsActiveWhenOldDropped)
     }
 
-    func testSectionsAreNotReadWhileSomethingIsHidden() {
+    func testSectionsAreNotReadWhileCollapsed() {
         let engine = makeEngine()
         engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
+        visibility.succeed(visibility.requests.count - 1)
+        engine.collapse { _ in }
         visibility.succeed(visibility.requests.count - 1)
         let snapshotsBefore = inventory.snapshots
 
         // Hidden items would report stale positions now; the cached layout is used.
         inventory.items = [item("com.visible", x: 100)]
-        engine.collapse { _ in }
+        engine.expand()
         XCTAssertEqual(inventory.snapshots, snapshotsBefore)
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.visible"])
+        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible"])
+    }
+
+    // With only the always-hidden section hidden, every other icon is on screen,
+    // so a ⌘-drag made while expanded counts on the next collapse; the hidden
+    // section's stale positions do not.
+    func testWhileOnlyAlwaysHiddenIsHiddenTheRestIsReadLive() {
+        let engine = makeEngine()
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
+        visibility.succeed(visibility.requests.count - 1)
+
+        inventory.items = [item("com.always", x: 1400), item("com.hidden", x: 1400), item("com.visible", x: 1100)]
+        engine.collapse { _ in }
+        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden"])
+    }
+
+    // Hiding the always-hidden section takes its separator with it, as it did
+    // before macOS 27; it only goes once the icons are actually hidden, and does
+    // not flash back while collapsing or expanding.
+    func testAlwaysHiddenSeparatorHidesWithItsSection() {
+        let engine = makeEngine()
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
+
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 20, "read where it is before hiding anything")
+        visibility.succeed(visibility.requests.count - 1)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+
+        engine.collapse { _ in }
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+        visibility.succeed(visibility.requests.count - 1)
+
+        engine.expand()
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+        visibility.succeed(visibility.requests.count - 1)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
+    }
+
+    func testAlwaysHiddenSeparatorStaysWhenItsSectionCannotBeHidden() {
+        let engine = makeEngine()
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
+        visibility.fail(visibility.requests.count - 1)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
+    }
+
+    func testAlwaysHiddenSeparatorEnabledWhileCollapsedHasNoWidth() {
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        visibility.succeed(visibility.requests.count - 1)
+
+        items.alwaysHiddenItem?.length = 20
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+    }
+
+    func testDisablingTheSectionRevealsItsApps() {
+        let engine = makeEngine()
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
+        let hidingAlwaysHidden = visibility.succeed(visibility.requests.count - 1)
+
+        engine.updateAlwaysHiddenSection(enabled: false, separatorHidden: true)
+        XCTAssertTrue(hidingAlwaysHidden.isInvalidated)
+    }
+
+    // An app launched since the sections were read is not always hidden, so it
+    // shows while expanded, at once and after a later launch.
+    func testAppsLaunchedWhileExpandedAreShown() {
+        running = ["com.early"]
+        let engine = makeEngine()
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
+        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible", "com.early"])
+        visibility.succeed(visibility.requests.count - 1)
+
+        running = ["com.early", "com.late", "com.always"]
+        let before = visibility.requests.count
+        launches.post(name: NSWorkspace.didLaunchApplicationNotification, object: nil)
+        XCTAssertEqual(visibility.requests.count, before + 1)
+        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible", "com.early", "com.late"])
+    }
+
+    func testLaunchesDoNotTouchACollapsedBar() {
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        visibility.succeed(visibility.requests.count - 1)
+        let before = visibility.requests.count
+        launches.post(name: NSWorkspace.didLaunchApplicationNotification, object: nil)
+        XCTAssertEqual(visibility.requests.count, before)
+        XCTAssertEqual(engine.state, .collapsed)
     }
 
     func testExpandDuringActivationDropsTheLateResult() {
@@ -333,5 +441,24 @@ final class LegacyLengthEngineTests: XCTestCase {
         engine.expand()
         XCTAssertEqual(engine.state, .expanded)
         XCTAssertEqual(items.separatorItem.length, 20)
+    }
+
+    // A display change re-sizes the always-hidden item while it is inflated,
+    // even with the bar expanded, and leaves it alone otherwise.
+    func testDisplayChangeResizesInflatedAlwaysHiddenItem() {
+        let items = FakeItems()
+        let engine = LegacyLengthEngine(items: items)
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
+        let inflated = items.alwaysHiddenItem?.length ?? 0
+        XCTAssertGreaterThan(inflated, 20)
+
+        items.alwaysHiddenItem?.length = 300
+        engine.invalidateLayout()
+        XCTAssertEqual(items.alwaysHiddenItem?.length, inflated)
+        XCTAssertEqual(engine.state, .expanded)
+
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
+        engine.invalidateLayout()
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
     }
 }
