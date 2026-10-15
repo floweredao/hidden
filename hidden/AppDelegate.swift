@@ -14,7 +14,9 @@ import ServiceManagement
 
 class AppDelegate: NSObject, NSApplicationDelegate{
     
-    var statusBarController = StatusBarController()
+    // Created in applicationDidFinishLaunching, after the defaults and the layout
+    // direction it reads are in place and only in the instance that stays.
+    private(set) var statusBarController: StatusBarController!
 
     var hotKey: HotKey? {
         didSet {
@@ -28,11 +30,19 @@ class AppDelegate: NSObject, NSApplicationDelegate{
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         guard ensureSingleInstance() else { return }
-        setupAutoStartApp()
         registerDefaultValues()
+        detectLTRLang()
+        statusBarController = StatusBarController()
+        setupAutoStartApp()
         setupHotKey()
         openPreferencesIfNeeded()
-        detectLTRLang()
+    }
+
+    // Opening the app again (Finder, Spotlight, Launchpad) shows Preferences, so
+    // settings stay reachable without the context menu.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        Util.showPrefWindow()
+        return true
     }
 
     /// Hidden Bar is a menu bar utility with no visible window, so launching it a
