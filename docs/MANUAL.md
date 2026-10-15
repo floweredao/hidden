@@ -5,12 +5,15 @@ Everything Hidden Bar can do, including the parts with no UI.
 ## Basics
 
 - **Left-click the arrow** (`<` / `>`): expand or collapse the hidden section.
-- **Right-click the arrow** or **left-click the separator** (`|`): context menu
+- **Right-click** (or Control-click) **the arrow**: with the always-hidden
+  section enabled, show/hide that section and its separator; otherwise, the
+  context menu.
+- **Option-click the arrow** or **left-click the separator** (`|`): context menu
   (Preferences, Toggle Auto Collapse, Quit).
+- **Open Hidden Bar again** (Finder, Spotlight, Launchpad) while it runs: opens
+  Preferences.
 - **⌘-drag** icons in the menu bar to move them across the separator: icons to
   the separator's left are hidden when collapsed.
-- **Option-click the arrow**: show/hide the separators and the always-hidden
-  area without expanding.
 
 ### macOS 27, direct download build
 
@@ -18,13 +21,17 @@ The direct (non-App Store) build hides icons natively on macOS 27, and the
 **arrow itself is the boundary**: there is no `|` separator. ⌘-drag icons to
 the arrow's left to hide them when collapsed, to its right to keep them
 visible. The always-hidden separator still appears (while expanded) when that
-section is enabled.
+section is enabled, and goes with its section when you right-click the arrow
+to hide it. Apps launched while expanded show up at once; apps launched while
+collapsed stay hidden until you expand.
 
 - Needs **Accessibility** permission (System Settings › Privacy & Security ›
   Accessibility) to see where your icons are. Without it the bar stays
   expanded.
 - Hiding is per app: an app with several icons hides or shows them together.
 - macOS's own items (clock, Wi-Fi, Sound, Control Center) always stay visible.
+  Older-style extras hosted by SystemUIServer (Time Machine, ...) follow the
+  arrow like apps do.
 - Run Hidden Bar from `/Applications`; macOS only recognizes that copy as
   Hidden Bar, and a copy elsewhere hides its own arrow.
 
@@ -36,15 +43,15 @@ section is enabled.
 | Show preferences on launch | Open this window at app start |
 | Auto collapse | Re-hide automatically after the chosen delay |
 | Global shortcut | System-wide expand/collapse hotkey (F-keys display as F18, not Fn18) |
-| Enable always hidden section | A second zone whose icons stay hidden even when expanded; revealed by option-clicking the arrow |
+| Enable always hidden section | A second zone whose icons stay hidden even when expanded; shown or hidden by right-clicking the arrow |
 | Use full menu bar on expanding | App becomes briefly "regular" while expanded (helps on tight menubars) |
 
 > **Always-hidden section, current behavior:** items in the always-hidden zone
 > are reliably pushed off-screen only when "hide separators" is also on
-> (option-click the arrow). With the separators visible, always-hidden items can
+> (right-click the arrow). With the separators visible, always-hidden items can
 > still appear after expanding. This coupling is a known limitation being
-> reworked alongside the menu-bar redesign; for now, option-click to hide the
-> separators if always-hidden items keep showing. Avoid placing critical icons in
+> reworked alongside the menu-bar redesign; for now, right-click the arrow to
+> hide the separators if always-hidden items keep showing. Avoid placing critical icons in
 > the always-hidden zone until the rework lands, since a stuck off-screen item has
 > to be recovered by ⌘-dragging it back (macOS persists its position per app).
 
