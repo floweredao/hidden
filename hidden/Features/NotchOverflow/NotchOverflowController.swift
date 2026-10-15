@@ -85,8 +85,11 @@ class NotchOverflowController: NSObject {
 
   // MARK: - Notch Detection
 
+  // The notched built-in display, not NSScreen.main (the screen with the key
+  // window): with an external display focused, the notch would read as absent
+  // and "Show Notch Items" would vanish from the menu.
   private static func currentBoundary() -> NotchBoundary {
-    guard let screen = NSScreen.main else {
+    guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main else {
       return NotchBoundary(hasNotch: false, overflowThresholdX: NotchGeometry.fallbackThresholdX)
     }
     let safeAreaTop: CGFloat
@@ -234,8 +237,13 @@ class NotchOverflowController: NSObject {
 
     for app in NSWorkspace.shared.runningApplications {
       if app.processIdentifier == myPID { continue }
+      // Only app bundles own status items; helpers would each sit out the timeout.
+      guard app.bundleURL?.pathExtension == "app" else { continue }
 
       let axApp = AXUIElementCreateApplication(app.processIdentifier)
+      // This runs on the main thread while the menu opens; without a short
+      // timeout one busy app freezes Hidden Bar for the default several seconds.
+      AXUIElementSetMessagingTimeout(axApp, 0.1)
       var extrasRef: AnyObject?
       let err = AXUIElementCopyAttributeValue(
         axApp, "AXExtrasMenuBar" as CFString, &extrasRef)
