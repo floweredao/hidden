@@ -24,6 +24,15 @@ xcodebuild -project 'Hidden Bar.xcodeproj' -scheme 'Hidden Bar' \
 codesign -d --entitlements - 'Hidden Bar.app' | grep app-sandbox  # must print nothing
 ```
 
+`scripts/install-local.sh` does all of this in one step: it builds
+`Release-Direct` into `.work/install-local`, stops if the app carries the
+App Sandbox entitlement, exports the prefs domain to
+`~/Library/Application Support/Hidden Bar Backups`, quits the running app,
+moves `/Applications/Hidden Bar.app` to the Trash, installs and launches the
+new build, and prints version, commit, signer, sandbox state and pid. It signs
+with your first Apple Development identity; set `HIDDEN_TEAM` to pick another
+team, `HIDDEN_INSTALL_DIR` or `HIDDEN_BACKUP_DIR` to change the folders.
+
 A sandboxed build keeps its settings in
 `~/Library/Containers/com.dwarvesv.minimalbar`, the direct build in
 `~/Library/Preferences`, so switching between them loses the settings unless
@@ -69,6 +78,18 @@ installed app, test the dev build, then re-import and relaunch.
 1. Verify the stack: every PR reviewed, builds green, behavioral checks above run.
 2. Bump `MARKETING_VERSION` (all four Hidden Bar configurations) and
    `CURRENT_PROJECT_VERSION` in the project file.
+
+   Fork versioning: this fork keeps upstream's `MARKETING_VERSION` (the
+   numeric `CFBundleShortVersionString`, which Apple requires to be digits and
+   periods only) and marks its own builds with `HIDDEN_FORK_VERSION`
+   (`<upstream>-fw.<N>`, e.g. `1.11.1-fw.1`, Info.plist key `HBForkVersion`)
+   and `CURRENT_PROJECT_VERSION` = upstream build x 1000 + N (`16001`), so a
+   fork build always sorts above the upstream build it is based on. The
+   **Record Git Commit** build phase stamps `HBGitCommit` (short hash, `-dirty`
+   for uncommitted changes); the About tab shows
+   `Version 1.11.1-fw.1 (16001 · <hash>)`. Hidden Bar has no in-app updater
+   (no Sparkle, no update check), so nothing replaces a fork build with an
+   upstream release.
 3. Archive the GitHub build with the **Hidden Bar** scheme
    (`Release-Direct`), then notarize (Developer ID), staple, zip, and publish a
    GitHub release with notes listing closed issues. The **Hidden Bar App Store**
