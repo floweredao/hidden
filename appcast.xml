@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Hidden Bar (floweredao fork)</title>
+    <link>https://github.com/floweredao/hidden</link>
+    <description>Updates for the floweredao fork of Hidden Bar.</description>
+    <language>en</language>
+    <item>
+      <title>Hidden Bar 1.11.1-fw.2</title>
+      <pubDate>Mon, 19 Oct 2026 17:24:05 +0000</pubDate>
+      <sparkle:version>16002</sparkle:version>
+      <sparkle:shortVersionString>1.11.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/floweredao/hidden/releases/tag/v1.11.1-fw.2</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[
+        <h2>Hidden Bar 1.11.1-fw.2</h2>
+        <ul>
+          <li>Hidden Bar now updates itself from this fork's own releases. Choose "Check for Updates…" from the right-click menu or the About tab, or let it check once a day.</li>
+          <li>Clicking the always-hidden "|" separator opens the menu again, so Preferences is reachable on macOS 27.</li>
+          <li>Many macOS 27 hiding fixes, Korean localization, and the source commit in the About tab.</li>
+        </ul>
+      ]]></description>
+      <enclosure url="https://github.com/floweredao/hidden/releases/download/v1.11.1-fw.2/Hidden-Bar-1.11.1-fw.2.zip" type="application/octet-stream" sparkle:edSignature="Zyv5VyYBpbu+wLCIR3yPt+au30TnbwVehD4Hs/C72wnOUAECPyjglNKI68lDZTi0ss6RBkongwI0HXBs4xjyDA==" length="1950433" />
+    </item>
+  </channel>
+</rss>
