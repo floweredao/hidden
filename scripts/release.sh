@@ -10,8 +10,9 @@
 # docs/RUNBOOK.md, "Release").
 #
 # The EdDSA private key stays in the login keychain (item "https://sparkle-project.org",
-# account "floweredao-hidden", created once with `generate_keys --account floweredao-hidden`);
-# sign_update reads it from there. Other Sparkle keys in the same keychain are left alone.
+# account "floweredao-hidden", created once with `generate_keys --account floweredao-hidden`).
+# Other Sparkle keys in the same keychain are left alone.
+#   HIDDEN_SPARKLE_BIN   folder with generate_keys/sign_update (default: the build's SPM artifact)
 #
 # Environment overrides:
 #   HIDDEN_TEAM          signing team ID (default: team of your first "Apple Development" identity)
@@ -74,8 +75,10 @@ codesign --verify --deep --strict "$APP" || fail "codesign verification failed"
 [ -n "$(read_key SUFeedURL)" ] || fail "SUFeedURL is empty"
 [ -n "$(read_key SUPublicEDKey)" ] || fail "SUPublicEDKey is empty"
 
-SIGN_UPDATE="$DERIVED/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update"
-[ -x "$SIGN_UPDATE" ] || fail "sign_update not found at $SIGN_UPDATE"
+SPARKLE_BIN=${HIDDEN_SPARKLE_BIN:-"$DERIVED/SourcePackages/artifacts/sparkle/Sparkle/bin"}
+SIGN_UPDATE="$SPARKLE_BIN/sign_update"
+GENERATE_KEYS="$SPARKLE_BIN/generate_keys"
+[ -x "$SIGN_UPDATE" ] && [ -x "$GENERATE_KEYS" ] || fail "Sparkle tools not found in $SPARKLE_BIN"
 
 OUT="$WORK/$FORK"
 ZIP="$OUT/Hidden-Bar-$FORK.zip"
@@ -85,10 +88,19 @@ step "Zipping to $ZIP"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 
 step "Signing the zip (EdDSA key from the login keychain)"
+# The keychain item only trusts the generate_keys binary that created it, so
+# sign_update reading it directly raises a keychain password prompt. Instead
+# generate_keys exports the key into a private (0700) folder that is wiped as
+# soon as signing ends, and sign_update reads it on stdin.
 KEY_ACCOUNT=floweredao-hidden
-SIGNATURE=$("$SIGN_UPDATE" --account "$KEY_ACCOUNT" "$ZIP")
-"$SIGN_UPDATE" --account "$KEY_ACCOUNT" --verify "$ZIP" "$(printf '%s' "$SIGNATURE" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')" \
-  || fail "the new signature does not verify"
+KEY_DIR=$(umask 077; mktemp -d "$WORK/key.XXXXXX")
+trap 'rm -P -f "$KEY_DIR/key" 2>/dev/null; rm -rf "$KEY_DIR"' EXIT
+(umask 077; perl -e 'alarm 30; exec @ARGV' "$GENERATE_KEYS" --account "$KEY_ACCOUNT" -x "$KEY_DIR/key" >/dev/null 2>&1) \
+  || fail "could not read the EdDSA key (account $KEY_ACCOUNT) from the keychain; approve generate_keys' keychain prompt with Always Allow"
+SIGNATURE=$("$SIGN_UPDATE" --ed-key-file - "$ZIP" <"$KEY_DIR/key")
+"$SIGN_UPDATE" --verify "$ZIP" "$(printf '%s' "$SIGNATURE" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')" \
+  --ed-key-file - <"$KEY_DIR/key" || fail "the new signature does not verify"
+rm -P -f "$KEY_DIR/key"; rm -rf "$KEY_DIR"
 printf '%s\n' "$SIGNATURE" >"$OUT/signature.txt"
 
 if [ -n "${HIDDEN_NO_APPCAST:-}" ]; then
