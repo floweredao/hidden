@@ -87,16 +87,6 @@ private final class FakeVisibility: NativeVisibilityProviding {
     }
 }
 
-private final class FakeCaptureActivity: CaptureActivityMonitoring {
-    var isActive = false
-    var onChange: (() -> Void)?
-
-    func set(_ active: Bool) {
-        isActive = active
-        onChange?()
-    }
-}
-
 private func item(_ bundle: String?, x: CGFloat, width: CGFloat = 24) -> MenuBarInventoryItem {
     return MenuBarInventoryItem(bundleIdentifier: bundle, frame: CGRect(x: x, y: 0, width: width, height: 24))
 }
@@ -180,7 +170,6 @@ final class NativeVisibilityEngineTests: XCTestCase {
     private var visibility: FakeVisibility!
     private var running: [String] = []
     private let launches = NotificationCenter()
-    private var capture: FakeCaptureActivity!
 
     override func setUp() {
         super.setUp()
@@ -189,13 +178,11 @@ final class NativeVisibilityEngineTests: XCTestCase {
         inventory.items = [item("com.always", x: 900), item("com.hidden", x: 1100), item("com.visible", x: 1400)]
         visibility = FakeVisibility()
         running = []
-        capture = FakeCaptureActivity()
     }
 
     private func makeEngine() -> NativeVisibilityEngine {
         let items = self.items!
         return NativeVisibilityEngine(items: items, inventory: inventory, visibility: visibility,
-                                      captureActivity: capture,
                                       ownBundleIdentifier: "com.dwarvesv.minimalbar",
                                       itemFrame: { $0 === items.toggleItem ? separator : alwaysHiddenSeparator },
                                       isLTR: { true },
@@ -434,125 +421,6 @@ final class NativeVisibilityEngineTests: XCTestCase {
         engine.invalidateLayout()
         XCTAssertEqual(engine.state, .collapsed)
         XCTAssertFalse(collapsed.isInvalidated)
-    }
-
-    // MARK: Microphone and camera (#437)
-
-    func testCollapseWhileCapturingHoldsNoRestriction() {
-        capture.isActive = true
-        let engine = makeEngine()
-        var results: [CollapseResult] = []
-        engine.collapse { results.append($0) }
-
-        XCTAssertEqual(results, [.collapsed], "the bar keeps the state the user asked for")
-        XCTAssertEqual(engine.state, .collapsed)
-        XCTAssertTrue(visibility.requests.isEmpty, "assessment mode would hide the recording indicators")
-    }
-
-    func testCaptureStartingWhileCollapsedDropsTheRestriction() {
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        let collapsed = visibility.succeed(0)
-
-        capture.set(true)
-        XCTAssertTrue(collapsed.isInvalidated)
-        XCTAssertEqual(engine.state, .collapsed)
-        XCTAssertEqual(visibility.requests.count, 1)
-    }
-
-    func testCaptureStoppingHidesAgainFromAFreshRead() {
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        capture.set(true)
-        let snapshotsBefore = inventory.snapshots
-
-        // The bar is unrestricted while capturing, so the sections are re-read.
-        inventory.items = [item("com.hidden", x: 1100), item("com.moved", x: 1400)]
-        capture.set(false)
-        XCTAssertEqual(inventory.snapshots, snapshotsBefore + 1)
-        XCTAssertEqual(visibility.requests.count, 2)
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.moved"])
-        let restored = visibility.succeed(1)
-        XCTAssertFalse(restored.isInvalidated)
-        XCTAssertEqual(engine.state, .collapsed)
-    }
-
-    func testExpandWhileCapturingThenStoppingRestoresTheExpandedPresentation() {
-        let engine = makeEngine()
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        visibility.succeed(visibility.requests.count - 1)
-        engine.collapse { _ in }
-        let collapsed = visibility.succeed(visibility.requests.count - 1)
-
-        capture.set(true)
-        XCTAssertTrue(collapsed.isInvalidated)
-        let requestsWhileCapturing = visibility.requests.count
-        engine.expand()
-        XCTAssertEqual(visibility.requests.count, requestsWhileCapturing, "nothing is hidden while capturing, not even always-hidden")
-
-        capture.set(false)
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible"])
-    }
-
-    func testCaptureStartingDuringActivationDropsTheResultButStillCollapses() {
-        let engine = makeEngine()
-        var results: [CollapseResult] = []
-        engine.collapse { results.append($0) }
-
-        capture.set(true)
-        let late = visibility.succeed(0)
-
-        XCTAssertTrue(late.isInvalidated)
-        XCTAssertEqual(results, [.collapsed])
-        XCTAssertEqual(engine.state, .collapsed)
-    }
-
-    // Expanded with the always-hidden section hidden also holds the assessment
-    // restriction, so a call started while expanded must drop it too.
-    func testCaptureWhileExpandedWithAlwaysHiddenHiddenDropsAndRestoresIt() {
-        let engine = makeEngine()
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        let expanded = visibility.succeed(visibility.requests.count - 1)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
-
-        capture.set(true)
-        XCTAssertTrue(expanded.isInvalidated, "nothing may be restricted while the mic is in use")
-        XCTAssertEqual(engine.state, .expanded)
-        let requestsWhileCapturing = visibility.requests.count
-        engine.applicationLaunched()
-        XCTAssertEqual(visibility.requests.count, requestsWhileCapturing)
-
-        capture.set(false)
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible"],
-                       "the always-hidden section is kept from the last read while its separator has no width")
-        visibility.succeed(visibility.requests.count - 1)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
-    }
-
-    func testCaptureStoppingWhileCollapsedKeepsTheAlwaysHiddenSeparatorCollapsed() {
-        let engine = makeEngine()
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
-        engine.collapse { _ in }
-        visibility.succeed(visibility.requests.count - 1)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
-
-        capture.set(true)
-        capture.set(false)
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.visible"])
-        visibility.succeed(visibility.requests.count - 1)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
-        XCTAssertEqual(engine.state, .collapsed)
-    }
-
-    func testUnchangedCaptureStateLeavesTheRestrictionAlone() {
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        let collapsed = visibility.succeed(0)
-
-        capture.set(false)
-        XCTAssertFalse(collapsed.isInvalidated)
-        XCTAssertEqual(visibility.requests.count, 1)
     }
 }
 

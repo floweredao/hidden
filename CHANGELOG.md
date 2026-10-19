@@ -3,7 +3,6 @@
 ## Unreleased
 
 ### Fixed
-- macOS 27 (direct download build): while any app uses the microphone or a camera, Hidden Bar stops hiding and shows the whole bar, then resumes when that stops. macOS 27's native hiding hides the menu-bar capsule that names the recording app (#437); the dot in the screen corner stays visible. This also covers the expanded bar while the always-hidden section is hidden, which holds the same restriction.
 - Clicking the always-hidden `|` separator, with either button, opens the context menu. On macOS 27 it is the only separator left in the bar, and it had no action, so right-clicking it to reach Preferences did nothing.
 - Right-clicking the arrow shows and hides the always-hidden section again, as the in-app tutorial says. It had moved to Option-click in v1.11, and Option-click never worked on macOS 27, whose status-bar clicks arrive without modifier flags. Option-click now opens the context menu, and right-click still opens it when the always-hidden section is off.
 - macOS 27: hiding the always-hidden section now takes its `|` separator with it, while expanded too, instead of leaving it in the bar.
@@ -20,12 +19,6 @@
 - Preferences: the menu-bar illustration no longer sits under the taller macOS 26+ toolbar, and the window stays wide enough that "Always Hidden" is no longer cut off at the left edge.
 - Preferences: the Notch Overflow checkbox now says Option-click, which opens the menu with "Show Notch Items" in every setup.
 - The illustration's clock follows the system's date and time format.
-
-### Known / in progress
-- macOS 27 (direct download build): native hiding is part of macOS's exam (assessment) mode, and macOS applies that mode's other restrictions while the arrow is collapsed, or while expanded with the always-hidden section hidden (#437). Now Playing and Live Activities are hidden, and clicking the clock does not open Notification Center (the two-finger trackpad swipe still does). Hidden Bar cannot opt out; the manual lists the details.
-
-### Changed
-- Manual: macOS's own items that stay visible while collapsed on macOS 27 are the clock, Control Center, Wi-Fi, Bluetooth, Sound, Battery, Display, Keyboard and Screen Mirroring, not all of them as previously stated.
 
 ### Added
 - Korean localization.
