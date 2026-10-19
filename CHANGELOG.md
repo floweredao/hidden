@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v1.11.1-fw.2 (2026-10-20)
+
+Fork release of floweredao/hidden, based on upstream v1.11.1.
 
 ### Fixed
 - Clicking the always-hidden `|` separator, with either button, opens the context menu. On macOS 27 it is the only separator left in the bar, and it had no action, so right-clicking it to reach Preferences did nothing.
@@ -21,9 +23,10 @@
 - The illustration's clock follows the system's date and time format.
 
 ### Added
+- Built-in updater for the fork (direct download build only): Hidden Bar checks floweredao/hidden's own update feed once a day and on demand ("Check for Updates…" in the right-click menu and the About tab), and installs only updates signed with the fork's key, so an upstream release never replaces a fork build. Automatic checks are on by default, with no permission prompt.
 - Korean localization.
-- Fork version `1.11.1-fw.1` (build 16001); the About tab shows it with the source commit.
-- `scripts/install-local.sh` builds, checks and installs the unsandboxed `Release-Direct` app.
+- Fork version `1.11.1-fw.2` (build 16002); the About tab shows it with the source commit.
+- `scripts/install-local.sh` builds, checks and installs the unsandboxed `Release-Direct` app; `scripts/release.sh` builds, zips and signs a release and adds it to `appcast.xml`.
 
 ## v1.11.1 (2026-09-18)
 

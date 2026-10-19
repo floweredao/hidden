@@ -46,6 +46,10 @@ brew install --cask hiddenbar
 - Open and drag the app to the Applications folder.
 - Launch Hidden and drag the icon in your menu bar (hold CMD) to the right so it is between some other icons.
 
+#### floweredao fork builds
+
+This fork publishes its own builds on [floweredao/hidden releases](https://github.com/floweredao/hidden/releases). A fork build updates itself from the fork's own feed: it checks once a day, or choose "Check for Updates…" from the right-click menu or the About tab. It installs only updates signed with the fork's key, so an upstream release never replaces it. Fork builds are signed with an Apple Development certificate and are not notarized.
+
 #### Build and install from source
 
 `scripts/install-local.sh` builds the unsandboxed `Release-Direct` app, refuses to install it if it carries the App Sandbox entitlement, backs up your settings, quits the running Hidden Bar, moves the old app to the Trash, installs and launches the new one, then prints its version, commit and signature. It signs with your Apple Development identity.
