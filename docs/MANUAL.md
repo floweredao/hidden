@@ -8,8 +8,9 @@ Everything Hidden Bar can do, including the parts with no UI.
 - **Right-click** (or Control-click) **the arrow**: with the always-hidden
   section enabled, show/hide that section and its separator; otherwise, the
   context menu.
-- **Option-click the arrow** or **left-click the separator** (`|`): context menu
-  (Preferences, Toggle Auto Collapse, Quit).
+- **Option-click the arrow** or **click a separator** (`|`, left or right
+  button, the always-hidden one included): context menu (Preferences, Toggle
+  Auto Collapse, Quit).
 - **Open Hidden Bar again** (Finder, Spotlight, Launchpad) while it runs: opens
   Preferences.
 - **⌘-drag** icons in the menu bar to move them across the separator: icons to
@@ -22,7 +23,7 @@ The direct (non-App Store) build hides icons natively on macOS 27, and the
 the arrow's left to hide them when collapsed, to its right to keep them
 visible. The always-hidden separator still appears (while expanded) when that
 section is enabled, and goes with its section when you right-click the arrow
-to hide it. Apps launched while expanded show up at once; apps launched while
+to hide it. Clicking it, with either button, opens the context menu. Apps launched while expanded show up at once; apps launched while
 collapsed stay hidden until you expand.
 
 - Needs **Accessibility** permission (System Settings › Privacy & Security ›

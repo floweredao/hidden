@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+- Clicking the always-hidden `|` separator, with either button, opens the context menu. On macOS 27 it is the only separator left in the bar, and it had no action, so right-clicking it to reach Preferences did nothing.
 - Right-clicking the arrow shows and hides the always-hidden section again, as the in-app tutorial says. It had moved to Option-click in v1.11, and Option-click never worked on macOS 27, whose status-bar clicks arrive without modifier flags. Option-click now opens the context menu, and right-click still opens it when the always-hidden section is off.
 - macOS 27: hiding the always-hidden section now takes its `|` separator with it, while expanded too, instead of leaving it in the bar.
 - macOS 27: relaunching with the always-hidden section hidden no longer hides almost every icon; the section is hidden once the separator is back in place.

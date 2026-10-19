@@ -393,6 +393,13 @@ extension StatusBarController {
             if let button = btnAlwaysHidden?.button {
                 button.image = self.imgIconLine
                 button.appearsDisabled = true
+                // On macOS 27 this is the only separator left in the bar, so it
+                // opens the context menu like the regular separator does;
+                // without an action, clicking it did nothing. Right-mouse-up
+                // must be in the mask too, or a right-click is not delivered.
+                button.target = self
+                button.action = #selector(self.showContextMenuFromSeparator(sender:))
+                button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             }
             self.btnAlwaysHidden?.autosaveName = "hiddenbar_terminate"
             self.btnAlwaysHidden?.isVisible = true
