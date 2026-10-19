@@ -87,10 +87,35 @@ installed app, test the dev build, then re-import and relaunch.
    fork build always sorts above the upstream build it is based on. The
    **Record Git Commit** build phase stamps `HBGitCommit` (short hash, `-dirty`
    for uncommitted changes); the About tab shows
-   `Version 1.11.1-fw.1 (16001 · <hash>)`. Hidden Bar has no in-app updater
-   (no Sparkle, no update check), so nothing replaces a fork build with an
-   upstream release.
-3. Archive the GitHub build with the **Hidden Bar** scheme
+   `Version 1.11.1-fw.2 (16002 · <hash>)`.
+
+   Updater (fork, `Release-Direct`/`Debug-Direct` only, compile condition
+   `HIDDENBAR_UPDATER`): Sparkle 2 reads `SUFeedURL`
+   (`HIDDEN_SU_FEED_URL` =
+   `https://raw.githubusercontent.com/floweredao/hidden/develop/appcast.xml`)
+   and accepts only archives signed with the EdDSA key whose public half is
+   `SUPublicEDKey` (`HIDDEN_SU_PUBLIC_ED_KEY`). The private key lives only in
+   the maintainer's login keychain (item `https://sparkle-project.org`, account
+   `floweredao-hidden`, made by `generate_keys --account floweredao-hidden`); never export it into the repo. Upstream has
+   no in-app updater and its releases are not in this feed, so nothing
+   replaces a fork build with an upstream release. The App Store `Release`
+   build never starts the updater (SPM still embeds Sparkle.framework there).
+   Fork releases are signed with an Apple Development certificate (team
+   2C86A9X4CG) and are not notarized: notarization needs a Developer ID
+   Application certificate and notary credentials, which this fork does not
+   have.
+3. Fork release (floweredao/hidden): write the notes as an HTML fragment,
+   then, from a clean, committed tree:
+
+   ```sh
+   scripts/release.sh notes.html          # build, check, zip, EdDSA-sign, add the <item> to appcast.xml
+   gh release create v<fork> .work/release/<fork>/Hidden-Bar-<fork>.zip --target <commit> --title "Hidden Bar <fork>" --notes-file <notes.md>
+   ```
+
+   Only after the zip is downloadable, commit `appcast.xml` and merge it to
+   `develop`; the feed is served from there. Check with
+   `curl -sL <feed> | grep sparkle:version` and by downloading the enclosure.
+   Upstream-style release (dwarvesf): archive the GitHub build with the **Hidden Bar** scheme
    (`Release-Direct`), then notarize (Developer ID), staple, zip, and publish a
    GitHub release with notes listing closed issues. The **Hidden Bar App Store**
    scheme archives `Release`, the sandboxed App Store build, which cannot hide
