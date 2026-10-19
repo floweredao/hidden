@@ -28,6 +28,20 @@ class AboutViewController: NSViewController {
                 let buildNumber = Bundle.main.buildVersionNumber else { return }
         let build = [buildNumber, Bundle.main.gitCommit].compactMap { $0 }.joined(separator: " · ")
         lblVersion.stringValue += " \(version) (\(build))"
+        #if HIDDENBAR_UPDATER
+        addCheckForUpdatesButton()
+        #endif
     }
+
+    #if HIDDENBAR_UPDATER
+    private func addCheckForUpdatesButton() {
+        guard let updater = (NSApp.delegate as? AppDelegate)?.updaterController,
+              let stack = lblVersion.superview as? NSStackView else { return }
+        let button = NSButton(title: "Check for Updates…".localized, target: updater,
+                              action: #selector(updater.checkForUpdates(_:)))
+        button.bezelStyle = .rounded
+        stack.addArrangedSubview(button)
+    }
+    #endif
     
 }

@@ -9,6 +9,10 @@
 import AppKit
 import HotKey
 import ServiceManagement
+#if HIDDENBAR_UPDATER
+import OSLog
+import Sparkle
+#endif
 
 @NSApplicationMain
 
@@ -17,6 +21,18 @@ class AppDelegate: NSObject, NSApplicationDelegate{
     // Created in applicationDidFinishLaunching, after the defaults and the layout
     // direction it reads are in place and only in the instance that stays.
     private(set) var statusBarController: StatusBarController!
+
+    #if HIDDENBAR_UPDATER
+    // The fork's own updater: checks floweredao/hidden's appcast (SUFeedURL) and
+    // installs only archives signed with the fork's EdDSA key (SUPublicEDKey).
+    // Started in applicationDidFinishLaunching, only in the instance that stays.
+    // SUVerifyUpdateBeforeExtraction makes the EdDSA signature mandatory before an
+    // archive is even unpacked, so a code-signing match alone can never replace it.
+    private let updaterDelegate = UpdaterDelegate()
+    private let userDriverDelegate = UpdaterUserDriverDelegate()
+    private(set) lazy var updaterController = SPUStandardUpdaterController(
+        startingUpdater: false, updaterDelegate: updaterDelegate, userDriverDelegate: userDriverDelegate)
+    #endif
 
     var hotKey: HotKey? {
         didSet {
@@ -35,6 +51,9 @@ class AppDelegate: NSObject, NSApplicationDelegate{
         statusBarController = StatusBarController()
         setupAutoStartApp()
         setupHotKey()
+        #if HIDDENBAR_UPDATER
+        updaterController.startUpdater()
+        #endif
         openPreferencesIfNeeded()
     }
 
@@ -118,3 +137,45 @@ class AppDelegate: NSObject, NSApplicationDelegate{
     }
    
 }
+
+#if HIDDENBAR_UPDATER
+/// Logs the updater's milestones (`log stream --predicate 'subsystem == "com.dwarvesv.minimalbar" && category == "updater"'`)
+/// so a release can be checked end to end without watching the screen.
+final class UpdaterDelegate: NSObject, SPUUpdaterDelegate {
+    private let log = Logger(subsystem: "com.dwarvesv.minimalbar", category: "updater")
+
+    func updater(_ updater: SPUUpdater, didFinishLoading appcast: SUAppcast) {
+        log.notice("appcast loaded: \(appcast.items.count, privacy: .public) item(s)")
+    }
+
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        log.notice("update found: \(item.versionString, privacy: .public) (\(item.displayVersionString, privacy: .public))")
+    }
+
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+        log.notice("no update: up to date")
+    }
+
+    func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
+        log.notice("ready to install on quit: \(item.versionString, privacy: .public)")
+        return false
+    }
+
+    func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        log.error("update aborted: \(error.localizedDescription, privacy: .public)")
+    }
+}
+
+/// Hidden Bar runs as a menu-bar agent (LSUIElement) with no window to sit
+/// behind, so Sparkle's scheduled "update available" alert is brought to the
+/// front when it appears instead of opening unseen behind other apps.
+final class UpdaterUserDriverDelegate: NSObject, SPUStandardUserDriverDelegate {
+    var supportsGentleScheduledUpdateReminders: Bool { true }
+
+    func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState) {
+        if handleShowingUpdate && !state.userInitiated {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+}
+#endif

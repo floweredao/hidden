@@ -343,6 +343,14 @@ class StatusBarController: MenuBarItemProvider {
         toggleAutoHideItem.target = self
         menu.addItem(toggleAutoHideItem)
 
+        #if HIDDENBAR_UPDATER
+        if let updater = (NSApp.delegate as? AppDelegate)?.updaterController {
+            let updateItem = NSMenuItem(title: "Check for Updates…".localized, action: #selector(updater.checkForUpdates(_:)), keyEquivalent: "")
+            updateItem.target = updater
+            menu.addItem(updateItem)
+        }
+        #endif
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit".localized, action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
