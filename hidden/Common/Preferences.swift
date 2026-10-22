@@ -131,6 +131,19 @@ enum Preferences {
         }
     }
 
+    // macOS 27 direct build: expanding holds no visibility restriction, so the
+    // Focus icon and the mic/camera capsule show (the always-hidden section too).
+    static var showsSystemIndicatorsWhenExpanded: Bool {
+        get {
+            UserDefaults.standard.bool(forKey: UserDefaults.Key.showsSystemIndicatorsWhenExpanded)
+        }
+
+        set {
+            UserDefaults.standard.set(newValue, forKey: UserDefaults.Key.showsSystemIndicatorsWhenExpanded)
+            NotificationCenter.default.post(Notification(name: .systemIndicatorsPreferenceChanged))
+        }
+    }
+
     static var notchOverflowEnabled: Bool {
         get {
             UserDefaults.standard.bool(forKey: UserDefaults.Key.notchOverflowEnabled)

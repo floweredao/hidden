@@ -71,3 +71,7 @@
 /* Login item error and help button */
 "Open Login Items Settings…" = "로그인 항목 설정 열기…";
 "How to Use the Always Hidden Section" = "항상 숨김 구역 사용법";
+
+/* macOS 27 indicators while expanded */
+"Show Focus and mic/camera indicators when expanded" = "펼쳤을 때 집중 모드와 마이크·카메라 표시 보이기";
+"macOS hides these while any icon is hidden. When this is on, the always-hidden section also shows while expanded." = "아이콘을 하나라도 숨기는 동안 macOS가 이 표시들을 가려요. 켜면 펼쳤을 때 항상 숨김 구역도 함께 보여요.";

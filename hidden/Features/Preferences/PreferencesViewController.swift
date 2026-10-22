@@ -48,6 +48,10 @@ class PreferencesViewController: NSViewController {
     // Why the login item could not be changed, right under its checkbox.
     private let loginErrorRow = NSStackView()
 
+    // macOS 27 direct build only: what expanding shows (see setUpSystemIndicatorsCheckBox).
+    private let checkBoxSystemIndicators = NSButton(checkboxWithTitle: "Show Focus and mic/camera indicators when expanded".localized,
+                                                    target: nil, action: nil)
+
     public var listening = false {
         didSet {
             let isHighlight = listening
@@ -70,6 +74,7 @@ class PreferencesViewController: NSViewController {
         // The containing stack view (detachesHiddenViews) reflows on its own.
         checkBoxNotchOverflow.isHidden = !NotchOverflowController.hasNotch
         setUpMenuBarItemsButton()
+        setUpSystemIndicatorsCheckBox()
         setUpHidingStatusRow()
         // The ⌫ title alone is read as a symbol, not as what the button does.
         btnClear.setAccessibilityLabel("Clear Global Shortcut".localized)
@@ -253,6 +258,7 @@ class PreferencesViewController: NSViewController {
         checkBoxShowAlwaysHiddenSection.state = Preferences.alwaysHiddenSectionEnabled ? .on : .off
         timePopup.selectItem(at: SelectedSecond.secondToPossition(seconds: Preferences.numberOfSecondForAutoHide))
         checkBoxNotchOverflow.state = Preferences.notchOverflowEnabled ? .on : .off
+        checkBoxSystemIndicators.state = Preferences.showsSystemIndicatorsWhenExpanded ? .on : .off
     }
     
     private func loadHotkey() {
@@ -305,6 +311,32 @@ extension PreferencesViewController {
         button.bezelStyle = .rounded
         button.setAccessibilityHelp("Choose which section each app's menu bar icon is in, without dragging.".localized)
         column.insertArrangedSubview(button, at: index + 1)
+    }
+
+    // While macOS 27 hides anything for Hidden Bar it also hides the Focus icon
+    // and the mic/camera capsule, and no allow list keeps them. On, the
+    // expanded bar hides nothing so they show; the always-hidden section then
+    // shows while expanded too. Placed under the always-hidden settings.
+    fileprivate func setUpSystemIndicatorsCheckBox() {
+        guard MenuBarEngineFactory.usesArrowAsBoundary,
+              let row = checkBoxShowAlwaysHiddenSection.superview,
+              let column = row.superview as? NSStackView,
+              let rowIndex = column.arrangedSubviews.firstIndex(of: row) else { return }
+        // After the Menu Bar Items… button when there is one.
+        let menuBarItemsIndex = column.arrangedSubviews.firstIndex { ($0 as? NSButton)?.action == #selector(showMenuBarItems(_:)) }
+        let index = (menuBarItemsIndex ?? rowIndex) + 1
+        checkBoxSystemIndicators.target = self
+        checkBoxSystemIndicators.action = #selector(systemIndicatorsChanged(_:))
+        let help = "macOS hides these while any icon is hidden. When this is on, the always-hidden section also shows while expanded.".localized
+        checkBoxSystemIndicators.toolTip = help
+        checkBoxSystemIndicators.setAccessibilityHelp(help)
+        checkBoxSystemIndicators.heightAnchor.constraint(greaterThanOrEqualToConstant: 20).isActive = true
+        checkBoxSystemIndicators.state = Preferences.showsSystemIndicatorsWhenExpanded ? .on : .off
+        column.insertArrangedSubview(checkBoxSystemIndicators, at: index)
+    }
+
+    @objc private func systemIndicatorsChanged(_ sender: NSButton) {
+        Preferences.showsSystemIndicatorsWhenExpanded = sender.state == .on
     }
 
     // At the top of the settings column, so it is the first thing read.

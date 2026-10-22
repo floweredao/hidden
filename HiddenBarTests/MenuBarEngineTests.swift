@@ -180,14 +180,41 @@ final class NativeVisibilityEngineTests: XCTestCase {
         running = []
     }
 
-    private func makeEngine() -> NativeVisibilityEngine {
+    private func makeEngine(keepsIndicatorsWhenExpanded: @escaping () -> Bool = { false }) -> NativeVisibilityEngine {
         let items = self.items!
         return NativeVisibilityEngine(items: items, inventory: inventory, visibility: visibility,
                                       ownBundleIdentifier: "com.dwarvesv.minimalbar",
                                       itemFrame: { $0 === items.toggleItem ? separator : alwaysHiddenSeparator },
                                       isLTR: { true },
                                       runningBundleIdentifiers: { [unowned self] in self.running },
-                                      launchNotifications: launches)
+                                      launchNotifications: launches,
+                                      keepsIndicatorsWhenExpanded: keepsIndicatorsWhenExpanded)
+    }
+
+    // macOS hides its indicators (Focus, the mic/camera capsule) while any
+    // restriction is held, so keeping them means expanded holds none, even with
+    // the always-hidden section hidden; collapsing still hides as before.
+    func testKeepingIndicatorsExpandedHoldsNoRestriction() {
+        var keepsIndicators = true
+        let engine = makeEngine(keepsIndicatorsWhenExpanded: { keepsIndicators })
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
+        XCTAssertTrue(visibility.requests.isEmpty)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 20, "its section shows, so its separator does")
+
+        engine.collapse { _ in }
+        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.visible"])
+        let collapsed = visibility.succeed(visibility.requests.count - 1)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+
+        engine.expand()
+        XCTAssertTrue(collapsed.isInvalidated)
+        XCTAssertEqual(visibility.requests.count, 1)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
+
+        // Turned off while expanded: the always-hidden section is hidden again.
+        keepsIndicators = false
+        engine.reapplySections { _ in }
+        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible"])
     }
 
     func testCollapseKeepsOnlyVisibleAppsAndSystemItems() {
