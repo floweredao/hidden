@@ -6,7 +6,7 @@
   Copyright © 2020 Dwarves Foundation. All rights reserved.
 */
 
-"Preferences..." = "偏好设置...";
+"Preferences..." = "偏好设置…";
 "Toggle Auto Collapse" = "切换自动折叠";
 "Enable Auto Collapse" = "开启自动折叠";
 "Disable Auto Collapse" = "关闭自动折叠";
@@ -21,5 +21,5 @@
 3. 接着将不想显示的图标移至持续隐藏区域中。
 4. 最后右键单击 “>” 按钮，就能隐藏'持续隐藏区域'中的图标。
 （再次右键单击 “>” 按钮恢复显示 “持续隐藏区域” 中的图标。）
-祝您使用愉快 😉!
+祝您使用愉快!
 ";
