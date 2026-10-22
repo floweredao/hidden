@@ -113,9 +113,27 @@ class NotchOverflowController: NSObject {
   }
 
   /// Show overflow menu anchored to a status item (called from StatusBarController)
+  // The menu opens at once with a reading row; the Accessibility walk (up to
+  // 0.1s per unresponsive app) runs off the main thread and fills it in, so a
+  // hung app never freezes Hidden Bar and Esc closes the menu meanwhile.
   func showOverflowMenuFromSeparator(near item: NSStatusItem) {
     guard ensureAccessibility() else { return }
-    let menu = buildOverflowMenu()
+    let menu = NSMenu()
+    menu.autoenablesItems = false
+    menu.addItem(makeSectionHeader(title: "Notch Overflow".localized, fontSize: 12))
+    let reading = NSMenuItem(title: "Reading menu bar items…".localized, action: nil, keyEquivalent: "")
+    reading.isEnabled = false
+    menu.addItem(reading)
+    let apps = Self.appsToRead()
+    DispatchQueue.global(qos: .userInitiated).async {
+      let read = Self.menuBarExtras(of: apps)
+      DispatchQueue.main.async { [weak self] in
+        guard let self = self else { return }
+        menu.removeAllItems()
+        self.fill(menu, extras: read.extras, boundary: Self.currentBoundary().overflowThresholdX,
+                  readFailed: read.failed, isAuthorized: AXIsProcessTrusted())
+      }
+    }
     item.menu = menu
     item.button?.performClick(nil)
     DispatchQueue.main.async {
@@ -134,13 +152,17 @@ class NotchOverflowController: NSObject {
     readFailed: Bool = false,
     isAuthorized: Bool = AXIsProcessTrusted()
   ) -> NSMenu {
-    let read = extras.map { (extras: $0, failed: readFailed) } ?? getAllMenuBarExtras()
-    let allExtras = read.extras
-    let resolvedBoundary = boundary ?? Self.currentBoundary().overflowThresholdX
-    let (hiddenExtras, visibleExtras) = MenuBarExtraClassifier.classify(allExtras, boundary: resolvedBoundary)
-
+    let read = extras.map { (extras: $0, failed: readFailed) } ?? Self.menuBarExtras(of: Self.appsToRead())
     let menu = NSMenu()
     menu.autoenablesItems = false
+    fill(menu, extras: read.extras, boundary: boundary ?? Self.currentBoundary().overflowThresholdX,
+         readFailed: read.failed, isAuthorized: isAuthorized)
+    return menu
+  }
+
+  private func fill(_ menu: NSMenu, extras allExtras: [MenuBarExtraInfo], boundary resolvedBoundary: CGFloat,
+                    readFailed: Bool, isAuthorized: Bool) {
+    let (hiddenExtras, visibleExtras) = MenuBarExtraClassifier.classify(allExtras, boundary: resolvedBoundary)
 
     // Title
     menu.addItem(makeSectionHeader(title: "Notch Overflow".localized, fontSize: 12))
@@ -173,7 +195,7 @@ class NotchOverflowController: NSObject {
       let title: String
       if !isAuthorized {
         title = "No items found (grant Accessibility permission)".localized
-      } else if read.failed {
+      } else if readFailed {
         title = "Menu bar items could not be read. Try again.".localized
       } else {
         title = "No items found".localized
@@ -189,8 +211,6 @@ class NotchOverflowController: NSObject {
         menu.addItem(settingsItem)
       }
     }
-
-    return menu
   }
 
   // Disabled, non-interactive label. Bold + labelColor (full contrast) rather
@@ -255,64 +275,76 @@ class NotchOverflowController: NSObject {
 
   // MARK: - AX Enumeration
 
-  // `failed` is true when an app did not answer (busy, hung or timed out), so
-  // the list may be missing its items.
-  private func getAllMenuBarExtras() -> (extras: [MenuBarExtraInfo], failed: Bool) {
-    var results: [MenuBarExtraInfo] = []
-    var failed = false
+  private struct AppToRead {
+    let pid: pid_t
+    let name: String
+    let icon: NSImage?
+  }
+
+  // Read on the main thread (NSRunningApplication), walked off it.
+  private static func appsToRead() -> [AppToRead] {
     let myPID = ProcessInfo.processInfo.processIdentifier
+    // Only app bundles own status items; helpers would each sit out the timeout.
+    return NSWorkspace.shared.runningApplications
+      .filter { $0.processIdentifier != myPID && $0.bundleURL?.pathExtension == "app" }
+      .map { AppToRead(pid: $0.processIdentifier, name: $0.localizedName ?? "Unknown", icon: $0.icon) }
+  }
 
-    for app in NSWorkspace.shared.runningApplications {
-      if app.processIdentifier == myPID { continue }
-      // Only app bundles own status items; helpers would each sit out the timeout.
-      guard app.bundleURL?.pathExtension == "app" else { continue }
-
-      let axApp = AXUIElementCreateApplication(app.processIdentifier)
-      // This runs on the main thread while the menu opens; without a short
-      // timeout one busy app freezes Hidden Bar for the default several seconds.
-      AXUIElementSetMessagingTimeout(axApp, 0.1)
-      var extrasRef: AnyObject?
-      let err = AXUIElementCopyAttributeValue(
-        axApp, "AXExtrasMenuBar" as CFString, &extrasRef)
-      guard err == .success else {
-        if err == .cannotComplete || err == .apiDisabled { failed = true }
-        continue
-      }
-
-      var childrenRef: AnyObject?
-      let childErr = AXUIElementCopyAttributeValue(
-        extrasRef as! AXUIElement,
-        kAXChildrenAttribute as CFString, &childrenRef)
-      guard childErr == .success,
-        let children = childrenRef as? [AXUIElement]
-      else { continue }
-
-      for child in children {
-        var titleRef: AnyObject?
-        AXUIElementCopyAttributeValue(child, kAXTitleAttribute as CFString, &titleRef)
-
-        var posRef: AnyObject?
-        AXUIElementCopyAttributeValue(child, kAXPositionAttribute as CFString, &posRef)
-        var pos = CGPoint.zero
-        if let pv = posRef { AXValueGetValue(pv as! AXValue, .cgPoint, &pos) }
-
-        var sizeRef: AnyObject?
-        AXUIElementCopyAttributeValue(child, kAXSizeAttribute as CFString, &sizeRef)
-        var size = CGSize.zero
-        if let sv = sizeRef { AXValueGetValue(sv as! AXValue, .cgSize, &size) }
-
-        results.append(MenuBarExtraInfo(
-          element: child,
-          appName: app.localizedName ?? "Unknown",
-          appIcon: app.icon,
-          title: titleRef as? String,
-          pid: app.processIdentifier,
-          position: pos,
-          size: size
-        ))
-      }
+  // `failed` is true when an app did not answer (busy, hung or timed out), so
+  // the list may be missing its items. Apps are queried concurrently, each with
+  // a short timeout, and results keep the running-app order.
+  private static func menuBarExtras(of apps: [AppToRead]) -> (extras: [MenuBarExtraInfo], failed: Bool) {
+    var perApp = [[MenuBarExtraInfo]](repeating: [], count: apps.count)
+    var failed = false
+    let lock = NSLock()
+    DispatchQueue.concurrentPerform(iterations: apps.count) { index in
+      let (found, appFailed) = menuBarExtras(of: apps[index])
+      lock.lock()
+      perApp[index] = found
+      failed = failed || appFailed
+      lock.unlock()
     }
-    return (results, failed)
+    return (perApp.flatMap { $0 }, failed)
+  }
+
+  private static func menuBarExtras(of app: AppToRead) -> ([MenuBarExtraInfo], Bool) {
+    let axApp = AXUIElementCreateApplication(app.pid)
+    // Without a short timeout one busy app holds the read for several seconds.
+    AXUIElementSetMessagingTimeout(axApp, 0.1)
+    var extrasRef: AnyObject?
+    let err = AXUIElementCopyAttributeValue(axApp, "AXExtrasMenuBar" as CFString, &extrasRef)
+    guard err == .success else {
+      return ([], err == .cannotComplete || err == .apiDisabled)
+    }
+    var childrenRef: AnyObject?
+    let childErr = AXUIElementCopyAttributeValue(extrasRef as! AXUIElement, kAXChildrenAttribute as CFString, &childrenRef)
+    guard childErr == .success, let children = childrenRef as? [AXUIElement] else { return ([], false) }
+
+    let results: [MenuBarExtraInfo] = children.map { child in
+      var titleRef: AnyObject?
+      AXUIElementCopyAttributeValue(child, kAXTitleAttribute as CFString, &titleRef)
+
+      var posRef: AnyObject?
+      AXUIElementCopyAttributeValue(child, kAXPositionAttribute as CFString, &posRef)
+      var pos = CGPoint.zero
+      if let pv = posRef { AXValueGetValue(pv as! AXValue, .cgPoint, &pos) }
+
+      var sizeRef: AnyObject?
+      AXUIElementCopyAttributeValue(child, kAXSizeAttribute as CFString, &sizeRef)
+      var size = CGSize.zero
+      if let sv = sizeRef { AXValueGetValue(sv as! AXValue, .cgSize, &size) }
+
+      return MenuBarExtraInfo(
+        element: child,
+        appName: app.name,
+        appIcon: app.icon,
+        title: titleRef as? String,
+        pid: app.pid,
+        position: pos,
+        size: size
+      )
+    }
+    return (results, false)
   }
 
 }
