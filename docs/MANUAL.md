@@ -35,6 +35,15 @@ collapsed stay hidden until you expand.
   arrow like apps do.
 - Run Hidden Bar from `/Applications`; macOS only recognizes that copy as
   Hidden Bar, and a copy elsewhere hides its own arrow.
+- **Without dragging:** Preferences › **Menu Bar Items…** lists every app with
+  a menu bar icon and a pop-up for its section: *By Position* (where you
+  ⌘-dragged it, the default), *Shown*, *Hidden* or *Always Hidden*. It works
+  with the keyboard and VoiceOver, takes effect at once (collapsed or not), and
+  a choice wins over the icon's position. Choosing *By Position* again undoes
+  it. Not available in the App Store build or before macOS 27.
+- If hiding cannot work (no Accessibility permission, or the system cannot
+  hide), the reason shows in Preferences and at the top of the context menu,
+  with a way to fix it.
 
 ## Preferences window
 
@@ -45,6 +54,7 @@ collapsed stay hidden until you expand.
 | Auto collapse | Re-hide automatically after the chosen delay |
 | Global shortcut | System-wide expand/collapse hotkey (F-keys display as F18, not Fn18) |
 | Enable always hidden section | A second zone whose icons stay hidden even when expanded; shown or hidden by right-clicking the arrow |
+| Menu Bar Items… | (macOS 27 direct build) Choose each app's section from a list instead of ⌘-dragging |
 | Use full menu bar on expanding | App becomes briefly "regular" while expanded (helps on tight menubars) |
 
 > **Always-hidden section, current behavior:** items in the always-hidden zone

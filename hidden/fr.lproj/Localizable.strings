@@ -6,7 +6,7 @@
   Copyright © 2020 Dwarves Foundation. All rights reserved.
 */
 
-"Preferences..." = "Réglages...";
+"Preferences..." = "Réglages…";
 "Toggle Auto Collapse" = "Activer la réduction automatique";
 "Enable Auto Collapse" = "Activer la réduction automatique";
 "Disable Auto Collapse" = "Désactiver la réduction automatique";
@@ -20,6 +20,6 @@ Utilisez la fonction de section toujours cachée pour garder vos icônes bien ra
 3. Enfin, faites un clic droit sur l'icône de réduction «<» pour la faire disparaître.
 
 Étapes pour afficher les icônes toujours masquées:
-1. Vous cliquez à nouveau avec le bouton droit de la souris sur l'icône «view» pour afficher et répéter l'action pour activer la fonction. Profitez 😉! 
+1. Vous cliquez à nouveau avec le bouton droit de la souris sur l'icône «view» pour afficher et répéter l'action pour activer la fonction. Profitez! 
 ";
 "Disable Auto Collapse" = "Désactiver la réduction automatique";

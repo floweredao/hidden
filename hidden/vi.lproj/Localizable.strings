@@ -6,7 +6,7 @@
   Copyright © 2020 Dwarves Foundation. All rights reserved.
 */
 
-"Preferences..." = "Tuỳ chọn...";
+"Preferences..." = "Tuỳ chọn…";
 "Toggle Auto Collapse" = "Đổi trạng thái tự động ẩn";
 "Enable Auto Collapse" = "Bật tự động ẩn";
 "Disable Auto Collapse" = "Tắt tự động ẩn";
@@ -19,5 +19,5 @@ Các bước thực hiện:
 2. Giữ phím ⌘ và kéo thanh mờ này về phía bên tay trái của thanh không mờ, di chuyển icons của ứng dụng mà bạn không muốn hiện kể cả khi đang mở rộng (hiện ẩn).
 3. Sau cùng, click phải vào icon “<” để luôn ẩn những icon này.
 Để hiện lại những icon luôn ẩn:
-1. Click phải vào nút “<” 😉!
+1. Click phải vào nút “<”!
 ";

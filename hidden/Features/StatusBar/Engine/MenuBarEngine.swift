@@ -30,6 +30,46 @@ protocol MenuBarEngine: AnyObject {
     // Display geometry changed. Re-applies the collapse to the live items when
     // collapsed, so a hot-plug does not leave a stale length behind (PR #354).
     func invalidateLayout()
+
+    // Whether apps can be put in a section from Settings, without ⌘-drag.
+    var supportsSectionAssignment: Bool { get }
+
+    // The sections as read from where the items sit, before the per-app
+    // choices are applied. nil when they cannot be read.
+    func readSections(completion: @escaping (MenuBarLayout?) -> Void)
+
+    // The per-app choices changed: hide again with them. Completes with false
+    // when hiding failed and everything is shown.
+    func reapplySections(completion: @escaping (Bool) -> Void)
+
+    // Why the last collapse hid nothing, until one succeeds. nil when hiding works.
+    var unavailableReason: HidingUnavailableReason? { get }
+}
+
+// Why the bar could not be collapsed, shown to the user instead of only logged.
+enum HidingUnavailableReason: Equatable {
+    // This build or macOS has no way to hide icons.
+    case notSupported
+    // The Accessibility permission is needed to read where the icons are.
+    case accessibilityNeeded
+    // The arrow's position cannot be read yet.
+    case boundaryUnreadable
+    // macOS refused the request to hide.
+    case activationFailed
+}
+
+extension MenuBarEngine {
+    var supportsSectionAssignment: Bool { false }
+
+    func readSections(completion: @escaping (MenuBarLayout?) -> Void) {
+        completion(nil)
+    }
+
+    func reapplySections(completion: @escaping (Bool) -> Void) {
+        completion(true)
+    }
+
+    var unavailableReason: HidingUnavailableReason? { nil }
 }
 
 enum MenuBarEngineState {

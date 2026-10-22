@@ -41,8 +41,8 @@
 /* Class = "NSTextFieldCell"; title = "Shown"; ObjectID = "iyS-g5-5mk"; */
 "iyS-g5-5mk.title" = "표시";
 
-/* Class = "NSTextFieldCell"; title = "⭐️Always Hidden"; ObjectID = "1jU-1x-cFf"; */
-"1jU-1x-cFf.title" = "⭐️항상 숨김";
+/* Class = "NSTextFieldCell"; title = "Always Hidden"; ObjectID = "1jU-1x-cFf"; */
+"1jU-1x-cFf.title" = "항상 숨김";
 
 /* Class = "NSTextFieldCell"; title = "Settings"; ObjectID = "1Is-Ut-a9h"; */
 "1Is-Ut-a9h.title" = "설정";
@@ -77,8 +77,8 @@
 /* Class = "NSMenuItem"; title = "1 minute"; ObjectID = "Zkr-Xd-Ffh"; */
 "Zkr-Xd-Ffh.title" = "1분 뒤";
 
-/* Class = "NSButtonCell"; title = "Enable Notch Overflow (Option-click ‹ to see icons behind the notch)"; ObjectID = "Ntc-Ov-Cl1"; */
-"Ntc-Ov-Cl1.title" = "노치 넘침 보기 사용 (‹를 Option-클릭하면 노치에 가린 아이콘이 보여요)";
+/* Class = "NSButtonCell"; title = "Enable Notch Overflow (Option-click ‹, then choose “Show Notch Items”)"; ObjectID = "Ntc-Ov-Cl1"; */
+"Ntc-Ov-Cl1.title" = "노치 넘침 보기 사용 (‹를 Option-클릭한 뒤 ‘노치에 가린 항목 보기’를 골라요)";
 
 /* Class = "NSTextFieldCell"; title = "Global Shortcut"; ObjectID = "HJP-Lf-rxm"; */
 "HJP-Lf-rxm.title" = "전역 단축키";

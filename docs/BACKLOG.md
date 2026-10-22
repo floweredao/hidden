@@ -20,8 +20,11 @@ math, collapse state machine) are HIGH RISK and require a mandatory review-team 
 - **Direct build bundle id.** Tested as `com.dwarvesv.minimalbar.direct`; decide whether
   release keeps `com.dwarvesv.minimalbar` (shared prefs, cannot coexist with the App
   Store copy) or ships separately.
-- **Tutorial text** still describes the `|` separator; the direct build on 27 uses the
-  arrow as the boundary. Needs a per-build string.
+- **Tutorial picture and text follow the engine** (done 2026-10-22): on the direct
+  build on 27 the picture has no `|` and the arrow marks the boundary.
+- **Menu Bar Items sheet** (done 2026-10-22): Settings > Menu Bar Items… sets each
+  app's section without ⌘-drag (keyboard and VoiceOver), native engine only. The
+  legacy engine still needs ⌘-drag.
 - **Adaptive-width experiment** (`fix/macos27-adaptive-engine`, local only): calibrating
   the separator width does not hide on a 1920pt non-notched display. Kept for reference.
 
@@ -41,14 +44,16 @@ math, collapse state machine) are HIGH RISK and require a mandatory review-team 
 - **Upgrade-path BTM verification before any signed release.** Install a pre-v1.11 build,
   update to v1.11, confirm Login Items shows no leftover `LauncherApplication` row (the
   one-shot `SMLoginItemSetEnabled(..., false)` deauth was added but never run on hardware).
-- **AXPress accessibility defect.** VoiceOver users cannot toggle the bar: the arrow's
-  `AXPress` handler reads `NSApp.currentEvent`, which is nil under assistive synthesis.
 - **`hoverToExpand` Preferences checkbox.** Shipped as a Terminal-only `defaults write`;
   add a proper checkbox in `PreferencesViewController`.
-- **Surface the `SMAppService` error contract in the prefs UI.** On `register()` failure
-  (unsigned build, or user denies in System Settings), the checkbox stays on while the
-  system says off; the error is swallowed into NSLog. Fix when the prefs UI is next touched.
-  `Common/Util.swift:29-31`.
+
+Resolved, kept for the record:
+
+- **AXPress (VoiceOver toggle)**: fixed in 5b49c00 (#415). A press with no event
+  (`ExpandCollapseActionResolver`, nil event type) toggles; covered by
+  `ExpandCollapseActionTests`.
+- **`SMAppService` errors in the prefs UI**: fixed in 4d04742 (#416); the checkbox
+  reverts, and since 2026-10-22 the reason shows inline under it instead of an alert.
 - **Round-2 issue close sweep (~35 issues).** Obsolete-OS + meta/support candidates,
   deferred until v1.11 ships so the closures carry the strongest answer.
 - **24h memory dogfood (#361).** Instruments stress-cycling found no leak; run v1.11 as

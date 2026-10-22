@@ -462,3 +462,142 @@ final class LegacyLengthEngineTests: XCTestCase {
         XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
     }
 }
+
+// MARK: - Sections chosen in Settings (no ⌘-drag)
+
+final class SectionOverrideTests: XCTestCase {
+    private var items: FakeItems!
+    private var inventory: FakeInventory!
+    private var visibility: FakeVisibility!
+    private var overrides: [String: MenuBarSection] = [:]
+    private var running: [String] = []
+
+    override func setUp() {
+        super.setUp()
+        items = FakeItems()
+        inventory = FakeInventory()
+        inventory.items = [item("com.always", x: 900), item("com.hidden", x: 1100), item("com.visible", x: 1400)]
+        visibility = FakeVisibility()
+        overrides = [:]
+        running = []
+    }
+
+    private func makeEngine() -> NativeVisibilityEngine {
+        let items = self.items!
+        return NativeVisibilityEngine(items: items, inventory: inventory, visibility: visibility,
+                                      ownBundleIdentifier: "com.dwarvesv.minimalbar",
+                                      itemFrame: { $0 === items.toggleItem ? separator : alwaysHiddenSeparator },
+                                      isLTR: { true },
+                                      runningBundleIdentifiers: { [unowned self] in self.running },
+                                      launchNotifications: NotificationCenter(),
+                                      sectionOverrides: { [unowned self] in self.overrides })
+    }
+
+    func testOverridesWinOverPositions() {
+        let layout = MenuBarLayout(sections: ["com.a": .visible, "com.b": .hidden])
+        let applied = layout.applying(overrides: ["com.a": .hidden, "com.b": .visible, "com.new": .alwaysHidden], alwaysHiddenEnabled: true)
+        XCTAssertEqual(applied.sections, ["com.a": .hidden, "com.b": .visible, "com.new": .alwaysHidden])
+    }
+
+    func testAlwaysHiddenChoiceHidesWhenTheSectionIsOff() {
+        let layout = MenuBarLayout(sections: ["com.a": .visible])
+        let applied = layout.applying(overrides: ["com.a": .alwaysHidden], alwaysHiddenEnabled: false)
+        XCTAssertEqual(applied.sections, ["com.a": .hidden])
+    }
+
+    func testCollapseHidesAnAppChosenAsHiddenAndShowsOneChosenAsShown() {
+        overrides = ["com.visible": .hidden, "com.hidden": .visible]
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden"])
+    }
+
+    func testChangingAChoiceWhileCollapsedSwapsTheRestriction() {
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        let first = visibility.succeed(0)
+        XCTAssertEqual(visibility.requests[0].bundles, ["com.dwarvesv.minimalbar", "com.visible"])
+
+        overrides = ["com.visible": .hidden]
+        var reapplied: Bool?
+        engine.reapplySections { reapplied = $0 }
+        XCTAssertEqual(visibility.requests.count, 2)
+        XCTAssertEqual(visibility.requests[1].bundles, ["com.dwarvesv.minimalbar"])
+        XCTAssertFalse(first.isInvalidated, "the old restriction stays until the new one is active")
+        visibility.succeed(1)
+        XCTAssertTrue(first.isInvalidated)
+        XCTAssertEqual(reapplied, true)
+        XCTAssertEqual(engine.state, .collapsed)
+    }
+
+    func testFailedReapplyShowsEverything() {
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        visibility.succeed(0)
+        overrides = ["com.visible": .hidden]
+        var reapplied: Bool?
+        engine.reapplySections { reapplied = $0 }
+        visibility.fail(1)
+        XCTAssertEqual(reapplied, false)
+        XCTAssertEqual(engine.state, .expanded)
+    }
+
+    // An app chosen as always hidden but not read from the bar (launched while
+    // collapsed) must not be shown as "unseen" while expanded.
+    func testExpandedKeepsAChosenAlwaysHiddenAppHiddenEvenIfUnread() {
+        running = ["com.late", "com.visible"]
+        overrides = ["com.late": .alwaysHidden]
+        let engine = makeEngine()
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
+        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible"])
+    }
+
+    func testReadSectionsReportsPositionsWithoutChoices() {
+        overrides = ["com.visible": .hidden]
+        let engine = makeEngine()
+        var read: MenuBarLayout?
+        engine.readSections { read = $0 }
+        XCTAssertEqual(read?.sections, ["com.always": .hidden, "com.hidden": .hidden, "com.visible": .visible])
+        XCTAssertTrue(visibility.requests.isEmpty, "reading for Settings never changes what is hidden")
+    }
+}
+
+// MARK: - Why hiding does not work (shown to the user)
+
+final class UnavailableReasonTests: XCTestCase {
+    private func makeEngine(inventory: FakeInventory, visibility: FakeVisibility) -> NativeVisibilityEngine {
+        let items = FakeItems()
+        return NativeVisibilityEngine(items: items, inventory: inventory, visibility: visibility,
+                                      ownBundleIdentifier: "com.dwarvesv.minimalbar",
+                                      itemFrame: { $0 === items.toggleItem ? separator : alwaysHiddenSeparator },
+                                      isLTR: { true },
+                                      runningBundleIdentifiers: { [] },
+                                      launchNotifications: NotificationCenter())
+    }
+
+    func testEachFailureHasItsOwnReasonAndSuccessClearsIt() {
+        let inventory = FakeInventory()
+        inventory.items = [item("com.visible", x: 1400)]
+        let visibility = FakeVisibility()
+
+        visibility.isAvailable = false
+        let unsupported = makeEngine(inventory: inventory, visibility: visibility)
+        unsupported.collapse { _ in }
+        XCTAssertEqual(unsupported.unavailableReason, .notSupported)
+
+        visibility.isAvailable = true
+        inventory.isAuthorized = false
+        let engine = makeEngine(inventory: inventory, visibility: visibility)
+        engine.collapse { _ in }
+        XCTAssertEqual(engine.unavailableReason, .accessibilityNeeded)
+
+        inventory.isAuthorized = true
+        engine.collapse { _ in }
+        visibility.fail(0)
+        XCTAssertEqual(engine.unavailableReason, .activationFailed)
+
+        engine.collapse { _ in }
+        visibility.succeed(1)
+        XCTAssertNil(engine.unavailableReason, "a collapse that works clears the message")
+    }
+}

@@ -6,7 +6,7 @@
   Copyright © 2020 Dwarves Foundation. All rights reserved.
 */
 
-"Preferences..." = "Preferences...";
+"Preferences..." = "Preferences…";
 "Toggle Auto Collapse" = "Toggle Auto Collapse";
 "Enable Auto Collapse" = "Enable Auto Collapse";
 "Disable Auto Collapse" = "Disable Auto Collapse";
@@ -18,7 +18,6 @@
 "Hidden Behind Notch (%d)" = "Hidden Behind Notch (%d)";
 "Visible (%d)" = "Visible (%d)";
 "No items found (grant Accessibility permission)" = "No items found (grant Accessibility permission)";
-"Enable Notch Overflow (right-click ‹ to access hidden icons)" = "Enable Notch Overflow (right-click ‹ to access hidden icons)";
 "Tutorial text" = "
 Use the always hidden feature to keep your icons tidy. Here's how to set it
 Steps to enable:
@@ -26,5 +25,50 @@ Steps to enable:
 2. Hold  ⌘ and drag it on the left-hand side of the normal bar, then move any icons you want to disappear on the left of that bar.
 3. Finally, please right-click on the collapse “<” icon to make it disappear.
 Steps to view always hidden icons:
-1. You right-click on “<” icon again to view and repeat the action to enable the feature. Enjoy 😉!
+1. You right-click on “<” icon again to view and repeat the action to enable the feature.
 ";
+
+/* Menu Bar Items (sections without ⌘-drag) */
+"Menu Bar Items…" = "Menu Bar Items…";
+"Menu Bar Items" = "Menu Bar Items";
+"Choose which section each app's menu bar icon is in, without dragging." = "Choose which section each app's menu bar icon is in, without dragging.";
+"Choose a section for each app. “By Position” follows where you ⌘-drag the icon in the menu bar." = "Choose a section for each app. “By Position” follows where you ⌘-drag the icon in the menu bar.";
+"Open Accessibility Settings…" = "Open Accessibility Settings…";
+"Refresh" = "Refresh";
+"Done" = "Done";
+"Reading menu bar items…" = "Reading menu bar items…";
+"Hidden Bar needs the Accessibility permission to read the menu bar. Allow it in System Settings > Privacy & Security > Accessibility." = "Hidden Bar needs the Accessibility permission to read the menu bar. Allow it in System Settings > Privacy & Security > Accessibility.";
+"The menu bar could not be read. Try Refresh." = "The menu bar could not be read. Try Refresh.";
+"No other app has a menu bar icon right now." = "No other app has a menu bar icon right now.";
+"not in the menu bar now" = "not in the menu bar now";
+"By Position (%@)" = "By Position (%@)";
+"Shown" = "Shown";
+"Hidden" = "Hidden";
+"Always Hidden" = "Always Hidden";
+
+/* Settings picture: the arrow is the boundary (macOS 27 native hiding) */
+"In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them, or use Menu Bar Items… below." = "In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them, or use Menu Bar Items… below.";
+"In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them." = "In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them.";
+
+/* Why hiding does not work */
+"Warning" = "Warning";
+"Try Hiding Again" = "Try Hiding Again";
+"Icons can't be hidden: this build can't hide them on this version of macOS." = "Icons can't be hidden: this build can't hide them on this version of macOS.";
+"Icons can't be hidden: Hidden Bar needs the Accessibility permission." = "Icons can't be hidden: Hidden Bar needs the Accessibility permission.";
+"Icons can't be hidden yet: the arrow's position can't be read." = "Icons can't be hidden yet: the arrow's position can't be read.";
+"Icons can't be hidden: macOS didn't allow it." = "Icons can't be hidden: macOS didn't allow it.";
+"Menu bar items could not be read. Try again." = "Menu bar items could not be read. Try again.";
+"No items found" = "No items found";
+
+/* Accessibility names for image-only buttons */
+"Hidden Bar Menu" = "Hidden Bar Menu";
+"With the always-hidden section on, right-click shows or hides it. Option-click opens the Hidden Bar menu." = "With the always-hidden section on, right-click shows or hides it. Option-click opens the Hidden Bar menu.";
+"Show Hidden Menu Bar Icons" = "Show Hidden Menu Bar Icons";
+"Hide Menu Bar Icons" = "Hide Menu Bar Icons";
+"Clear Global Shortcut" = "Clear Global Shortcut";
+
+/* Login item error and help button */
+"Open Login Items Settings…" = "Open Login Items Settings…";
+"How to Use the Always Hidden Section" = "How to Use the Always Hidden Section";
+"Could not update the login item" = "Could not update the login item";
+"Check System Settings > General > Login Items and make sure Hidden Bar is allowed." = "Check System Settings > General > Login Items and make sure Hidden Bar is allowed.";

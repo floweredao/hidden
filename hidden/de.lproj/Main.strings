@@ -5,8 +5,8 @@
 /* Class = "NSMenuItem"; title = "Hidden Bar"; ObjectID = "1Xt-HY-uBw"; */
 "1Xt-HY-uBw.title" = "Hidden Bar";
 
-/* Class = "NSTextFieldCell"; title = "⭐️Always Hidden"; ObjectID = "1jU-1x-cFf"; */
-"1jU-1x-cFf.title" = "⭐️Immer ausgeblendet";
+/* Class = "NSTextFieldCell"; title = "Always Hidden"; ObjectID = "1jU-1x-cFf"; */
+"1jU-1x-cFf.title" = "Immer ausgeblendet";
 
 /* Class = "NSTextFieldCell"; title = "Hidden Bar"; ObjectID = "2xp-Ht-xa6"; */
 "2xp-Ht-xa6.title" = "Hidden Bar";

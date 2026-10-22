@@ -6,6 +6,7 @@
 //  Copyright © 2019 Dwarves Foundation. All rights reserved.
 //
 
+import Carbon
 import Foundation
 
 struct GlobalKeybindPreferences: Codable, CustomStringConvertible {
@@ -87,8 +88,11 @@ struct GlobalKeybindPreferences: Codable, CustomStringConvertible {
             return stringBuilder
         }
 
-        if let characters = self.characters {
-            stringBuilder += characters.uppercased()
+        // The hotkey fires by key position (keyCode), so show what that key
+        // types on the current keyboard layout, not what it typed when the
+        // shortcut was recorded; the stored characters are the fallback.
+        if let name = Self.keyName(for: keyCode) ?? self.characters {
+            stringBuilder += name.uppercased()
         }
         
         return "\(stringBuilder)"
@@ -96,6 +100,30 @@ struct GlobalKeybindPreferences: Codable, CustomStringConvertible {
 }
 
 extension GlobalKeybindPreferences {
+    // The character the key types without modifiers on the current layout, or
+    // the current ASCII-capable layout while an input method (Korean, Japanese...)
+    // is selected, the way the system's own menus show shortcuts.
+    static func keyName(for keyCode: UInt32) -> String? {
+        for source in [TISCopyCurrentKeyboardLayoutInputSource(), TISCopyCurrentASCIICapableKeyboardLayoutInputSource()] {
+            guard let source = source?.takeRetainedValue(),
+                  let raw = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { continue }
+            let data = Unmanaged<CFData>.fromOpaque(raw).takeUnretainedValue() as Data
+            var deadKeys: UInt32 = 0
+            var length = 0
+            var chars = [UniChar](repeating: 0, count: 4)
+            let status = data.withUnsafeBytes { buffer -> OSStatus in
+                guard let layout = buffer.bindMemory(to: UCKeyboardLayout.self).baseAddress else { return -1 }
+                return UCKeyTranslate(layout, UInt16(keyCode), UInt16(kUCKeyActionDisplay), 0,
+                                      UInt32(LMGetKbdType()), OptionBits(kUCKeyTranslateNoDeadKeysBit),
+                                      &deadKeys, chars.count, &length, &chars)
+            }
+            guard status == noErr, length > 0 else { continue }
+            let name = String(utf16CodeUnits: chars, count: length).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty { return name }
+        }
+        return nil
+    }
+
     func save() {
         
     }

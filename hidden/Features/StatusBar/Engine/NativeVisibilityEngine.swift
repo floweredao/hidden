@@ -47,6 +47,8 @@ final class NativeVisibilityEngine: MenuBarEngine {
     private let isLTR: () -> Bool
     private let runningBundleIdentifiers: () -> [String]
     private let launchNotifications: NotificationCenter
+    // The per-app sections chosen in Settings; they win over positions.
+    private let sectionOverrides: () -> [String: MenuBarSection]
     private var launchObserver: NSObjectProtocol?
 
     private let expandedLength: CGFloat = 20
@@ -63,6 +65,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
     // activation); a late success is then invalidated straight away.
     private var generation = 0
     private var lastUnavailableReason: String?
+    private(set) var unavailableReason: HidingUnavailableReason?
 
     private var alwaysHiddenEnabled = false
     private var alwaysHiddenSeparatorHidden = false
@@ -74,7 +77,8 @@ final class NativeVisibilityEngine: MenuBarEngine {
          itemFrame: @escaping (NSStatusItem) -> CGRect? = { $0.button?.window?.frame },
          isLTR: @escaping () -> Bool = { Constant.isUsingLTRLanguage },
          runningBundleIdentifiers: @escaping () -> [String] = { NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier) },
-         launchNotifications: NotificationCenter = NSWorkspace.shared.notificationCenter) {
+         launchNotifications: NotificationCenter = NSWorkspace.shared.notificationCenter,
+         sectionOverrides: @escaping () -> [String: MenuBarSection] = { [:] }) {
         self.items = items
         self.inventory = inventory
         self.visibility = visibility
@@ -83,6 +87,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
         self.isLTR = isLTR
         self.runningBundleIdentifiers = runningBundleIdentifiers
         self.launchNotifications = launchNotifications
+        self.sectionOverrides = sectionOverrides
         items.separatorItem.isVisible = false
         launchObserver = launchNotifications.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             self?.applicationLaunched()
@@ -110,7 +115,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
         }
 
         guard visibility.isAvailable else {
-            logUnavailableOnce("the native menu-bar visibility API is not available in this build or on this macOS")
+            report(.notSupported, "the native menu-bar visibility API is not available in this build or on this macOS")
             state = .unavailable
             return completion(.unavailable)
         }
@@ -119,20 +124,25 @@ final class NativeVisibilityEngine: MenuBarEngine {
             // hide icons the user kept visible. Not latched: it works as soon as
             // the permission is granted.
             inventory.requestAuthorization()
-            logUnavailableOnce("Accessibility permission is needed to read the menu-bar sections")
+            report(.accessibilityNeeded, "Accessibility permission is needed to read the menu-bar sections")
             return completion(.unavailable)
         }
         state = .calibrating
         withLayout { [weak self] layout in
             guard let self = self else { return }
             guard let layout = layout else {
-                self.logUnavailableOnce("the arrow's position cannot be read yet")
+                self.report(.boundaryUnreadable, "the arrow's position cannot be read yet")
                 self.state = .expanded
                 return completion(.unavailable)
             }
-            self.activate(allowing: layout.bundles(in: [.visible]), hidesOnlyAlwaysHidden: false) { [weak self] succeeded in
+            self.activate(allowing: self.effective(layout).bundles(in: [.visible]), hidesOnlyAlwaysHidden: false) { [weak self] succeeded in
                 guard let self = self else { return }
                 self.state = succeeded ? .collapsed : .expanded
+                if succeeded {
+                    self.clearReport()
+                } else {
+                    self.report(.activationFailed, "macOS refused the visibility restriction")
+                }
                 // On failure the whole bar is shown, separator included.
                 self.setSeparatorsVisible(!succeeded)
                 completion(succeeded ? .collapsed : .unavailable)
@@ -193,12 +203,71 @@ final class NativeVisibilityEngine: MenuBarEngine {
             }
             // Running apps the sections have not seen yet (launched since the last
             // read) are not in the always-hidden section, so they are shown.
-            let known = Set(layout.sections.keys)
+            let chosen = self.effective(layout)
+            let known = Set(chosen.sections.keys)
             let unseen = Set(self.runningBundleIdentifiers()).subtracting(known).sorted()
-            self.activate(allowing: layout.bundles(in: [.visible, .hidden]) + unseen, hidesOnlyAlwaysHidden: true) { [weak self] succeeded in
+            self.activate(allowing: chosen.bundles(in: [.visible, .hidden]) + unseen, hidesOnlyAlwaysHidden: true) { [weak self] succeeded in
                 guard let self = self, self.state == .expanded else { return }
                 self.setSeparatorsVisible(!succeeded)
             }
+        }
+    }
+
+    private func effective(_ layout: MenuBarLayout) -> MenuBarLayout {
+        return layout.applying(overrides: sectionOverrides(), alwaysHiddenEnabled: alwaysHiddenEnabled)
+    }
+
+    var supportsSectionAssignment: Bool {
+        return true
+    }
+
+    // For Settings: a fresh read when the bar is unrestricted (or only the
+    // always-hidden section is hidden), the last read otherwise. Unlike
+    // withLayout it leaves the cached sections and any activation in flight alone.
+    func readSections(completion: @escaping (MenuBarLayout?) -> Void) {
+        let restricted = assertion != nil
+        guard inventory.isAuthorized,
+              state != .calibrating,
+              !restricted || assertionHidesOnlyAlwaysHidden,
+              let arrow = items?.toggleItem,
+              let boundary = itemFrame(arrow) else { return completion(layout) }
+        let keptAlwaysHidden = restricted ? (layout?.sections.filter { $0.value == .alwaysHidden } ?? [:]) : [:]
+        let alwaysHiddenFrame = alwaysHiddenEnabled && !restricted ? items?.alwaysHiddenItem.flatMap(itemFrame) : nil
+        let isLTR = self.isLTR()
+        inventory.snapshot { [weak self] inventory in
+            guard let self = self else { return completion(nil) }
+            var read = MenuBarLayoutResolver.resolve(inventory: inventory,
+                                                     separatorFrame: boundary,
+                                                     alwaysHiddenSeparatorFrame: alwaysHiddenFrame,
+                                                     isLTR: isLTR,
+                                                     excludingBundle: self.ownBundleIdentifier)
+            read.sections.merge(keptAlwaysHidden) { _, kept in kept }
+            completion(read)
+        }
+    }
+
+    // Collapsed: swap in a restriction built from the cached sections and the new
+    // choices (new before old, so nothing flashes). Expanded: redo the expanded
+    // presentation, which also uses the choices.
+    func reapplySections(completion: @escaping (Bool) -> Void) {
+        switch state {
+        case .collapsed:
+            guard let layout = layout else { return completion(true) }
+            activate(allowing: effective(layout).bundles(in: [.visible]), hidesOnlyAlwaysHidden: false) { [weak self] succeeded in
+                guard let self = self else { return }
+                if !succeeded {
+                    self.state = .expanded
+                    self.setSeparatorsVisible(true)
+                    self.report(.activationFailed, "macOS refused the visibility restriction")
+                }
+                completion(succeeded)
+            }
+        case .expanded:
+            applyExpandedPresentation()
+            completion(true)
+        case .calibrating, .unavailable:
+            // A collapse in flight reads the choices when it activates.
+            completion(true)
         }
     }
 
@@ -297,10 +366,17 @@ final class NativeVisibilityEngine: MenuBarEngine {
         assertionHidesOnlyAlwaysHidden = false
     }
 
-    // Logged when the reason changes, so a retried collapse does not spam.
-    private func logUnavailableOnce(_ reason: String) {
-        guard reason != lastUnavailableReason else { return }
-        lastUnavailableReason = reason
-        NSLog("NativeVisibility: hiding unavailable: \(reason)")
+    // Kept for the UI; logged when the reason changes, so a retried collapse
+    // does not spam.
+    private func report(_ reason: HidingUnavailableReason, _ detail: String) {
+        unavailableReason = reason
+        guard detail != lastUnavailableReason else { return }
+        lastUnavailableReason = detail
+        NSLog("NativeVisibility: hiding unavailable: \(detail)")
+    }
+
+    private func clearReport() {
+        unavailableReason = nil
+        lastUnavailableReason = nil
     }
 }

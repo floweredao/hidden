@@ -117,6 +117,20 @@ enum Preferences {
         }
     }
 
+    // Per-app sections chosen in Settings (bundle id -> MenuBarSection raw value),
+    // used instead of the app's ⌘-drag position. A missing entry follows the position.
+    static var sectionOverrides: [String: MenuBarSection] {
+        get {
+            let stored = UserDefaults.standard.dictionary(forKey: UserDefaults.Key.sectionOverrides) as? [String: Int] ?? [:]
+            return stored.compactMapValues(MenuBarSection.init(rawValue:))
+        }
+
+        set {
+            UserDefaults.standard.set(newValue.mapValues(\.rawValue), forKey: UserDefaults.Key.sectionOverrides)
+            NotificationCenter.default.post(Notification(name: .sectionOverridesChanged))
+        }
+    }
+
     static var notchOverflowEnabled: Bool {
         get {
             UserDefaults.standard.bool(forKey: UserDefaults.Key.notchOverflowEnabled)

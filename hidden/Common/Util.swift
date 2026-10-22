@@ -23,5 +23,12 @@ class Util {
         let prefWindow = PreferencesWindowController.shared.window
         prefWindow?.bringToFront()
     }
+
+    // System Settings > Privacy & Security > Accessibility.
+    static func openAccessibilitySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
    
 }

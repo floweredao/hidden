@@ -47,6 +47,22 @@ final class NotchOverflowMenuBuilderTests: XCTestCase {
         XCTAssertEqual(emptyStateItem?.isEnabled, false, "the empty-state message is informational, not actionable")
     }
 
+    // An empty list with the permission granted must not ask for the permission
+    // again; a read that failed says so; only a missing permission offers the fix.
+    func test_emptyStates_tellPermissionNoItemsAndReadFailureApart() {
+        let notAuthorized = controller.buildOverflowMenu(extras: [], boundary: 500, isAuthorized: false)
+        XCTAssertNotNil(notAuthorized.items.first { $0.title.contains("grant Accessibility") })
+        XCTAssertNotNil(notAuthorized.items.first { $0.action != nil && $0.isEnabled }, "offers to open the setting")
+
+        let empty = controller.buildOverflowMenu(extras: [], boundary: 500, isAuthorized: true)
+        XCTAssertNil(empty.items.first { $0.title.contains("Accessibility") })
+        XCTAssertNotNil(empty.items.first { $0.title == "No items found" })
+
+        let failed = controller.buildOverflowMenu(extras: [], boundary: 500, readFailed: true, isAuthorized: true)
+        XCTAssertNotNil(failed.items.first { $0.title.contains("could not be read") })
+        XCTAssertNil(failed.items.first { $0.title.contains("Accessibility") })
+    }
+
     // Given a mix of hidden and visible extras
     // When building the overflow menu
     // Then the section headers report the correct counts
