@@ -60,3 +60,10 @@
 "Icons can't be hidden: macOS didn't allow it." = "아이콘을 숨길 수 없어요: macOS가 허용하지 않았어요.";
 "Menu bar items could not be read. Try again." = "메뉴 막대 항목을 읽지 못했어요. 다시 시도해 주세요.";
 "No items found" = "항목이 없어요";
+
+/* Accessibility names for image-only buttons */
+"Hidden Bar Menu" = "Hidden Bar 메뉴";
+"With the always-hidden section on, right-click shows or hides it. Option-click opens the Hidden Bar menu." = "항상 숨김 구역을 켜 두었으면 오른쪽 클릭으로 그 구역을 보이거나 숨겨요. Option-클릭하면 Hidden Bar 메뉴가 열려요.";
+"Show Hidden Menu Bar Icons" = "숨긴 메뉴 막대 아이콘 보기";
+"Hide Menu Bar Icons" = "메뉴 막대 아이콘 숨기기";
+"Clear Global Shortcut" = "전역 단축키 지우기";

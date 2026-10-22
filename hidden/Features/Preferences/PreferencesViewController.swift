@@ -68,6 +68,9 @@ class PreferencesViewController: NSViewController {
         checkBoxNotchOverflow.isHidden = !NotchOverflowController.hasNotch
         setUpMenuBarItemsButton()
         setUpHidingStatusRow()
+        // The ⌫ title alone is read as a symbol, not as what the button does.
+        btnClear.setAccessibilityLabel("Clear Global Shortcut".localized)
+        btnClear.toolTip = "Clear Global Shortcut".localized
         NotificationCenter.default.addObserver(self, selector: #selector(updateData), name: .prefsChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateHidingStatus), name: .hidingStatusChanged, object: nil)
     }

@@ -59,3 +59,10 @@ Steps to view always hidden icons:
 "Icons can't be hidden: macOS didn't allow it." = "Icons can't be hidden: macOS didn't allow it.";
 "Menu bar items could not be read. Try again." = "Menu bar items could not be read. Try again.";
 "No items found" = "No items found";
+
+/* Accessibility names for image-only buttons */
+"Hidden Bar Menu" = "Hidden Bar Menu";
+"With the always-hidden section on, right-click shows or hides it. Option-click opens the Hidden Bar menu." = "With the always-hidden section on, right-click shows or hides it. Option-click opens the Hidden Bar menu.";
+"Show Hidden Menu Bar Icons" = "Show Hidden Menu Bar Icons";
+"Hide Menu Bar Icons" = "Hide Menu Bar Icons";
+"Clear Global Shortcut" = "Clear Global Shortcut";

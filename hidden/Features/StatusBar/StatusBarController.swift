@@ -169,19 +169,21 @@ class StatusBarController: MenuBarItemProvider {
     private func setupUI() {
         if let button = btnSeparate.button {
             button.image = self.imgIconLine
+            button.setAccessibilityLabel("Hidden Bar Menu".localized)
             button.target = self
             button.action = #selector(self.showContextMenuFromSeparator(sender:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
         if let button = btnExpandCollapse.button {
-            button.image = Assets.collapseImage
             button.target = self
+            button.setAccessibilityHelp("With the always-hidden section on, right-click shows or hides it. Option-click opens the Hidden Bar menu.".localized)
             
             button.action = #selector(self.btnExpandCollapsePressed(sender:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         
+        showToggle(collapsed: false)
         btnExpandCollapse.autosaveName = "hiddenbar_expandcollapse";
         btnSeparate.autosaveName = "hiddenbar_separate";
     }
@@ -236,6 +238,16 @@ class StatusBarController: MenuBarItemProvider {
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: 0), in: button)
     }
     
+    // The arrow is an image only, so VoiceOver gets a name for what pressing it
+    // does; it changes with the state, so the new state is read after a toggle.
+    private func showToggle(collapsed: Bool) {
+        guard let button = btnExpandCollapse.button else { return }
+        button.image = collapsed ? Assets.expandImage : Assets.collapseImage
+        button.setAccessibilityLabel(collapsed
+            ? "Show Hidden Menu Bar Icons".localized
+            : "Hide Menu Bar Icons".localized)
+    }
+
     func showHideSeparatorsAndAlwayHideArea() {
         Preferences.areSeparatorsHidden ? self.showSeparators() : self.hideSeparators()
         
@@ -295,18 +307,14 @@ class StatusBarController: MenuBarItemProvider {
     // a permission), so show the bar as expanded, and restore the activation
     // policy in case the UI had already switched to collapsed.
     private func didFailToCollapseMenuBar() {
-        if let button = btnExpandCollapse.button {
-            button.image = Assets.collapseImage
-        }
+        showToggle(collapsed: false)
         if Preferences.useFullStatusBarOnExpandEnabled {
             NSApp.setActivationPolicy(.regular)
         }
     }
 
     private func didCollapseMenuBar() {
-        if let button = btnExpandCollapse.button {
-            button.image = Assets.expandImage
-        }
+        showToggle(collapsed: true)
         if Preferences.useFullStatusBarOnExpandEnabled {
             NSApp.setActivationPolicy(.accessory)
             NSApp.deactivate()
@@ -316,9 +324,7 @@ class StatusBarController: MenuBarItemProvider {
     private func expandMenubar() {
         guard self.isCollapsed else {return}
         menuBarEngine.expand()
-        if let button = btnExpandCollapse.button {
-            button.image = Assets.collapseImage
-        }
+        showToggle(collapsed: false)
         autoCollapseIfNeeded()
         
         if Preferences.useFullStatusBarOnExpandEnabled {
@@ -472,6 +478,7 @@ extension StatusBarController {
             if let button = btnAlwaysHidden?.button {
                 button.image = self.imgIconLine
                 button.appearsDisabled = true
+                button.setAccessibilityLabel("Hidden Bar Menu".localized)
                 // On macOS 27 this is the only separator left in the bar, so it
                 // opens the context menu like the regular separator does;
                 // without an action, clicking it did nothing. Right-mouse-up
