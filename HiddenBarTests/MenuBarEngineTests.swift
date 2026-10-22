@@ -561,3 +561,43 @@ final class SectionOverrideTests: XCTestCase {
         XCTAssertTrue(visibility.requests.isEmpty, "reading for Settings never changes what is hidden")
     }
 }
+
+// MARK: - Why hiding does not work (shown to the user)
+
+final class UnavailableReasonTests: XCTestCase {
+    private func makeEngine(inventory: FakeInventory, visibility: FakeVisibility) -> NativeVisibilityEngine {
+        let items = FakeItems()
+        return NativeVisibilityEngine(items: items, inventory: inventory, visibility: visibility,
+                                      ownBundleIdentifier: "com.dwarvesv.minimalbar",
+                                      itemFrame: { $0 === items.toggleItem ? separator : alwaysHiddenSeparator },
+                                      isLTR: { true },
+                                      runningBundleIdentifiers: { [] },
+                                      launchNotifications: NotificationCenter())
+    }
+
+    func testEachFailureHasItsOwnReasonAndSuccessClearsIt() {
+        let inventory = FakeInventory()
+        inventory.items = [item("com.visible", x: 1400)]
+        let visibility = FakeVisibility()
+
+        visibility.isAvailable = false
+        let unsupported = makeEngine(inventory: inventory, visibility: visibility)
+        unsupported.collapse { _ in }
+        XCTAssertEqual(unsupported.unavailableReason, .notSupported)
+
+        visibility.isAvailable = true
+        inventory.isAuthorized = false
+        let engine = makeEngine(inventory: inventory, visibility: visibility)
+        engine.collapse { _ in }
+        XCTAssertEqual(engine.unavailableReason, .accessibilityNeeded)
+
+        inventory.isAuthorized = true
+        engine.collapse { _ in }
+        visibility.fail(0)
+        XCTAssertEqual(engine.unavailableReason, .activationFailed)
+
+        engine.collapse { _ in }
+        visibility.succeed(1)
+        XCTAssertNil(engine.unavailableReason, "a collapse that works clears the message")
+    }
+}

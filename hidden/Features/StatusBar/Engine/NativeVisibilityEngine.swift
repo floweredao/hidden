@@ -65,6 +65,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
     // activation); a late success is then invalidated straight away.
     private var generation = 0
     private var lastUnavailableReason: String?
+    private(set) var unavailableReason: HidingUnavailableReason?
 
     private var alwaysHiddenEnabled = false
     private var alwaysHiddenSeparatorHidden = false
@@ -114,7 +115,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
         }
 
         guard visibility.isAvailable else {
-            logUnavailableOnce("the native menu-bar visibility API is not available in this build or on this macOS")
+            report(.notSupported, "the native menu-bar visibility API is not available in this build or on this macOS")
             state = .unavailable
             return completion(.unavailable)
         }
@@ -123,20 +124,25 @@ final class NativeVisibilityEngine: MenuBarEngine {
             // hide icons the user kept visible. Not latched: it works as soon as
             // the permission is granted.
             inventory.requestAuthorization()
-            logUnavailableOnce("Accessibility permission is needed to read the menu-bar sections")
+            report(.accessibilityNeeded, "Accessibility permission is needed to read the menu-bar sections")
             return completion(.unavailable)
         }
         state = .calibrating
         withLayout { [weak self] layout in
             guard let self = self else { return }
             guard let layout = layout else {
-                self.logUnavailableOnce("the arrow's position cannot be read yet")
+                self.report(.boundaryUnreadable, "the arrow's position cannot be read yet")
                 self.state = .expanded
                 return completion(.unavailable)
             }
             self.activate(allowing: self.effective(layout).bundles(in: [.visible]), hidesOnlyAlwaysHidden: false) { [weak self] succeeded in
                 guard let self = self else { return }
                 self.state = succeeded ? .collapsed : .expanded
+                if succeeded {
+                    self.clearReport()
+                } else {
+                    self.report(.activationFailed, "macOS refused the visibility restriction")
+                }
                 // On failure the whole bar is shown, separator included.
                 self.setSeparatorsVisible(!succeeded)
                 completion(succeeded ? .collapsed : .unavailable)
@@ -252,6 +258,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
                 if !succeeded {
                     self.state = .expanded
                     self.setSeparatorsVisible(true)
+                    self.report(.activationFailed, "macOS refused the visibility restriction")
                 }
                 completion(succeeded)
             }
@@ -359,10 +366,17 @@ final class NativeVisibilityEngine: MenuBarEngine {
         assertionHidesOnlyAlwaysHidden = false
     }
 
-    // Logged when the reason changes, so a retried collapse does not spam.
-    private func logUnavailableOnce(_ reason: String) {
-        guard reason != lastUnavailableReason else { return }
-        lastUnavailableReason = reason
-        NSLog("NativeVisibility: hiding unavailable: \(reason)")
+    // Kept for the UI; logged when the reason changes, so a retried collapse
+    // does not spam.
+    private func report(_ reason: HidingUnavailableReason, _ detail: String) {
+        unavailableReason = reason
+        guard detail != lastUnavailableReason else { return }
+        lastUnavailableReason = detail
+        NSLog("NativeVisibility: hiding unavailable: \(detail)")
+    }
+
+    private func clearReport() {
+        unavailableReason = nil
+        lastUnavailableReason = nil
     }
 }

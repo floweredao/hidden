@@ -125,11 +125,17 @@ class NotchOverflowController: NSObject {
 
   // MARK: - Menu Building
 
+  /// - Parameters:
+  ///   - readFailed: some apps did not answer, so an empty list may be incomplete.
+  ///   - isAuthorized: whether Accessibility is granted; without it nothing can be read.
   func buildOverflowMenu(
     extras: [MenuBarExtraInfo]? = nil,
-    boundary: CGFloat? = nil
+    boundary: CGFloat? = nil,
+    readFailed: Bool = false,
+    isAuthorized: Bool = AXIsProcessTrusted()
   ) -> NSMenu {
-    let allExtras = extras ?? getAllMenuBarExtras()
+    let read = extras.map { (extras: $0, failed: readFailed) } ?? getAllMenuBarExtras()
+    let allExtras = read.extras
     let resolvedBoundary = boundary ?? Self.currentBoundary().overflowThresholdX
     let (hiddenExtras, visibleExtras) = MenuBarExtraClassifier.classify(allExtras, boundary: resolvedBoundary)
 
@@ -161,13 +167,27 @@ class NotchOverflowController: NSObject {
       }
     }
 
-    // Empty state
+    // Empty state: say which of the three it is, so a user who has granted the
+    // permission is not told to grant it again.
     if hiddenExtras.isEmpty && visibleExtras.isEmpty {
-      let emptyItem = NSMenuItem(
-        title: "No items found (grant Accessibility permission)".localized,
-        action: nil, keyEquivalent: "")
+      let title: String
+      if !isAuthorized {
+        title = "No items found (grant Accessibility permission)".localized
+      } else if read.failed {
+        title = "Menu bar items could not be read. Try again.".localized
+      } else {
+        title = "No items found".localized
+      }
+      let emptyItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
       emptyItem.isEnabled = false
       menu.addItem(emptyItem)
+      if !isAuthorized {
+        let settingsItem = NSMenuItem(
+          title: "Open Accessibility Settings…".localized,
+          action: #selector(openAccessibilitySettings), keyEquivalent: "")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+      }
     }
 
     return menu
@@ -215,6 +235,10 @@ class NotchOverflowController: NSObject {
     return item
   }
 
+  @objc private func openAccessibilitySettings() {
+    Util.openAccessibilitySettings()
+  }
+
   @objc private func activateItem(_ sender: NSMenuItem) {
     guard let info = sender.representedObject as? MenuBarExtraInfo else { return }
     AXUIElementPerformAction(info.element, kAXPressAction as CFString)
@@ -231,8 +255,11 @@ class NotchOverflowController: NSObject {
 
   // MARK: - AX Enumeration
 
-  private func getAllMenuBarExtras() -> [MenuBarExtraInfo] {
+  // `failed` is true when an app did not answer (busy, hung or timed out), so
+  // the list may be missing its items.
+  private func getAllMenuBarExtras() -> (extras: [MenuBarExtraInfo], failed: Bool) {
     var results: [MenuBarExtraInfo] = []
+    var failed = false
     let myPID = ProcessInfo.processInfo.processIdentifier
 
     for app in NSWorkspace.shared.runningApplications {
@@ -247,7 +274,10 @@ class NotchOverflowController: NSObject {
       var extrasRef: AnyObject?
       let err = AXUIElementCopyAttributeValue(
         axApp, "AXExtrasMenuBar" as CFString, &extrasRef)
-      guard err == .success else { continue }
+      guard err == .success else {
+        if err == .cannotComplete || err == .apiDisabled { failed = true }
+        continue
+      }
 
       var childrenRef: AnyObject?
       let childErr = AXUIElementCopyAttributeValue(
@@ -282,7 +312,7 @@ class NotchOverflowController: NSObject {
         ))
       }
     }
-    return results
+    return (results, failed)
   }
 
 }

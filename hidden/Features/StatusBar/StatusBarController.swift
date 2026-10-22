@@ -43,6 +43,15 @@ class StatusBarController: MenuBarItemProvider {
     
     private var isToggle = false
 
+    // Why the last collapse hid nothing, shown in the context menu and Settings
+    // until a collapse succeeds. nil while hiding works.
+    private(set) var hidingProblem: HidingUnavailableReason? {
+        didSet {
+            guard hidingProblem != oldValue else { return }
+            NotificationCenter.default.post(name: .hidingStatusChanged, object: nil)
+        }
+    }
+
     private var hoverMonitor: Any?
     private var hoverDwellTimer: Timer?
 
@@ -134,9 +143,9 @@ class StatusBarController: MenuBarItemProvider {
     @objc private func sectionOverridesChanged() {
         let wasCollapsed = isCollapsed
         menuBarEngine.reapplySections { [weak self] succeeded in
-            if wasCollapsed && !succeeded {
-                self?.didFailToCollapseMenuBar()
-            }
+            guard let self = self, wasCollapsed, !succeeded else { return }
+            self.hidingProblem = self.menuBarEngine.unavailableReason ?? .activationFailed
+            self.didFailToCollapseMenuBar()
         }
     }
 
@@ -273,8 +282,10 @@ class StatusBarController: MenuBarItemProvider {
             guard let self = self else { return }
             switch result {
             case .collapsed:
+                self.hidingProblem = nil
                 self.didCollapseMenuBar()
             case .unavailable:
+                self.hidingProblem = self.menuBarEngine.unavailableReason ?? .activationFailed
                 self.didFailToCollapseMenuBar()
             }
         }
@@ -346,6 +357,20 @@ class StatusBarController: MenuBarItemProvider {
     private func getContextMenu() -> NSMenu {
         let menu = NSMenu()
 
+        // Say why the bar does not hide, with the way to fix it, instead of
+        // leaving the arrow to look broken.
+        if let problem = hidingProblem {
+            let reasonItem = NSMenuItem(title: Self.describe(problem), action: nil, keyEquivalent: "")
+            reasonItem.isEnabled = false
+            menu.addItem(reasonItem)
+            let fixItem = problem == .accessibilityNeeded
+                ? NSMenuItem(title: "Open Accessibility Settings…".localized, action: #selector(openAccessibilitySettings), keyEquivalent: "")
+                : NSMenuItem(title: "Try Hiding Again".localized, action: #selector(retryHiding), keyEquivalent: "")
+            fixItem.target = self
+            menu.addItem(fixItem)
+            menu.addItem(NSMenuItem.separator())
+        }
+
         // Notch overflow menu item (only on notch Macs, and only when enabled)
         if NotchOverflowController.hasNotch && Preferences.notchOverflowEnabled {
             let overflowItem = NSMenuItem(title: "Show Notch Items".localized, action: #selector(showNotchOverflow), keyEquivalent: "")
@@ -375,6 +400,32 @@ class StatusBarController: MenuBarItemProvider {
         menu.addItem(NSMenuItem(title: "Quit".localized, action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
         return menu
+    }
+
+    static func describe(_ problem: HidingUnavailableReason) -> String {
+        switch problem {
+        case .notSupported:
+            return "Icons can't be hidden: this build can't hide them on this version of macOS.".localized
+        case .accessibilityNeeded:
+            return "Icons can't be hidden: Hidden Bar needs the Accessibility permission.".localized
+        case .boundaryUnreadable:
+            return "Icons can't be hidden yet: the arrow's position can't be read.".localized
+        case .activationFailed:
+            return "Icons can't be hidden: macOS didn't allow it.".localized
+        }
+    }
+
+    @objc func openAccessibilitySettings() {
+        Util.openAccessibilitySettings()
+    }
+
+    // Collapses again, which clears the problem once hiding works.
+    @objc func retryHiding() {
+        if isCollapsed {
+            hidingProblem = nil
+        } else {
+            collapseMenuBar()
+        }
     }
 
     @objc func updateAutoHide() {

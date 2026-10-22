@@ -41,6 +41,21 @@ protocol MenuBarEngine: AnyObject {
     // The per-app choices changed: hide again with them. Completes with false
     // when hiding failed and everything is shown.
     func reapplySections(completion: @escaping (Bool) -> Void)
+
+    // Why the last collapse hid nothing, until one succeeds. nil when hiding works.
+    var unavailableReason: HidingUnavailableReason? { get }
+}
+
+// Why the bar could not be collapsed, shown to the user instead of only logged.
+enum HidingUnavailableReason: Equatable {
+    // This build or macOS has no way to hide icons.
+    case notSupported
+    // The Accessibility permission is needed to read where the icons are.
+    case accessibilityNeeded
+    // The arrow's position cannot be read yet.
+    case boundaryUnreadable
+    // macOS refused the request to hide.
+    case activationFailed
 }
 
 extension MenuBarEngine {
@@ -53,6 +68,8 @@ extension MenuBarEngine {
     func reapplySections(completion: @escaping (Bool) -> Void) {
         completion(true)
     }
+
+    var unavailableReason: HidingUnavailableReason? { nil }
 }
 
 enum MenuBarEngineState {

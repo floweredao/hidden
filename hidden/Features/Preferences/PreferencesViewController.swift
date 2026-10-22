@@ -39,6 +39,12 @@ class PreferencesViewController: NSViewController {
 
     @IBOutlet weak var checkBoxNotchOverflow: NSButton!
 
+    // Why the bar does not hide (see StatusBarController.hidingProblem), with
+    // the action that fixes it. Hidden while hiding works.
+    private let hidingStatusRow = NSStackView()
+    private let hidingStatusLabel = NSTextField(wrappingLabelWithString: "")
+    private let hidingStatusButton = NSButton()
+
     public var listening = false {
         didSet {
             let isHighlight = listening
@@ -61,12 +67,15 @@ class PreferencesViewController: NSViewController {
         // The containing stack view (detachesHiddenViews) reflows on its own.
         checkBoxNotchOverflow.isHidden = !NotchOverflowController.hasNotch
         setUpMenuBarItemsButton()
+        setUpHidingStatusRow()
         NotificationCenter.default.addObserver(self, selector: #selector(updateData), name: .prefsChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(updateHidingStatus), name: .hidingStatusChanged, object: nil)
     }
 
     deinit {
         // Balance the viewDidLoad observer (PRs #335/#346).
         NotificationCenter.default.removeObserver(self, name: .prefsChanged, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .hidingStatusChanged, object: nil)
     }
 
     static func initWithStoryboard() -> PreferencesViewController {
@@ -233,6 +242,51 @@ extension PreferencesViewController {
         button.bezelStyle = .rounded
         button.setAccessibilityHelp("Choose which section each app's menu bar icon is in, without dragging.".localized)
         column.insertArrangedSubview(button, at: index + 1)
+    }
+
+    // At the top of the settings column, so it is the first thing read.
+    fileprivate func setUpHidingStatusRow() {
+        guard let column = checkBoxLogin.superview as? NSStackView else { return }
+        let icon = NSImageView(image: NSImage(systemSymbolName: "exclamationmark.triangle.fill",
+                                              accessibilityDescription: "Warning".localized) ?? NSImage())
+        icon.contentTintColor = .systemYellow
+        icon.setContentHuggingPriority(.required, for: .horizontal)
+        hidingStatusButton.bezelStyle = .rounded
+        hidingStatusButton.target = self
+        hidingStatusButton.action = #selector(fixHidingProblem(_:))
+        hidingStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        hidingStatusLabel.preferredMaxLayoutWidth = 300
+        let text = NSStackView(views: [hidingStatusLabel, hidingStatusButton])
+        text.orientation = .vertical
+        text.alignment = .leading
+        text.spacing = 6
+        hidingStatusRow.setViews([icon, text], in: .leading)
+        hidingStatusRow.orientation = .horizontal
+        hidingStatusRow.alignment = .top
+        hidingStatusRow.spacing = 8
+        column.insertArrangedSubview(hidingStatusRow, at: 0)
+        updateHidingStatus()
+    }
+
+    @objc func updateHidingStatus() {
+        guard let problem = statusBarController?.hidingProblem else {
+            hidingStatusRow.isHidden = true
+            return
+        }
+        hidingStatusLabel.stringValue = StatusBarController.describe(problem)
+        hidingStatusButton.title = problem == .accessibilityNeeded
+            ? "Open Accessibility Settings…".localized
+            : "Try Hiding Again".localized
+        hidingStatusRow.isHidden = false
+    }
+
+    @objc private func fixHidingProblem(_ sender: NSButton) {
+        guard let statusBar = statusBarController else { return }
+        if statusBar.hidingProblem == .accessibilityNeeded {
+            statusBar.openAccessibilitySettings()
+        } else {
+            statusBar.retryHiding()
+        }
     }
 
     @objc func showMenuBarItems(_ sender: Any?) {
