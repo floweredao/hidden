@@ -28,3 +28,21 @@
 항상 숨김 아이콘을 보는 방법:
 1. “<” 아이콘을 다시 오른쪽 클릭하면 보이고, 한 번 더 하면 다시 숨겨져요. 즐겁게 쓰세요 😉!
 ";
+
+/* Menu Bar Items (sections without ⌘-drag) */
+"Menu Bar Items…" = "메뉴 막대 항목…";
+"Menu Bar Items" = "메뉴 막대 항목";
+"Choose which section each app's menu bar icon is in, without dragging." = "끌지 않고 앱마다 메뉴 막대 아이콘의 구역을 골라요.";
+"Choose a section for each app. “By Position” follows where you ⌘-drag the icon in the menu bar." = "앱마다 구역을 골라요. ‘위치대로’는 메뉴 막대에서 ⌘-드래그로 놓은 자리를 따라요.";
+"Open Accessibility Settings…" = "손쉬운 사용 설정 열기…";
+"Refresh" = "새로 고침";
+"Done" = "완료";
+"Reading menu bar items…" = "메뉴 막대 항목을 읽는 중…";
+"Hidden Bar needs the Accessibility permission to read the menu bar. Allow it in System Settings > Privacy & Security > Accessibility." = "메뉴 막대를 읽으려면 손쉬운 사용 권한이 필요해요. 시스템 설정 > 개인정보 보호 및 보안 > 손쉬운 사용에서 허용해 주세요.";
+"The menu bar could not be read. Try Refresh." = "메뉴 막대를 읽지 못했어요. 새로 고침을 눌러 주세요.";
+"No other app has a menu bar icon right now." = "지금 메뉴 막대에 아이콘이 있는 다른 앱이 없어요.";
+"not in the menu bar now" = "지금 메뉴 막대에 없음";
+"By Position (%@)" = "위치대로 (%@)";
+"Shown" = "표시";
+"Hidden" = "숨김";
+"Always Hidden" = "항상 숨김";

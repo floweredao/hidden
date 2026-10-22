@@ -77,6 +77,7 @@ class StatusBarController: MenuBarItemProvider {
         setupHoverToExpandIfEnabled()
         NotificationCenter.default.addObserver(self, selector: #selector(handleScreenParametersChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateAutoHide), name: .prefsChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(sectionOverridesChanged), name: .sectionOverridesChanged, object: nil)
         // Sections are read from where the items sit, so wait until macOS has put
         // them back in place before hiding the always-hidden section; read at
         // launch, the separator has no position yet.
@@ -120,6 +121,25 @@ class StatusBarController: MenuBarItemProvider {
         }
     }
     
+    // Settings can place apps in sections without ⌘-drag where the engine allows it.
+    var supportsSectionAssignment: Bool {
+        return menuBarEngine.supportsSectionAssignment
+    }
+
+    func readSections(completion: @escaping (MenuBarLayout?) -> Void) {
+        menuBarEngine.readSections(completion: completion)
+    }
+
+    // A choice made in Settings takes effect right away, collapsed or not.
+    @objc private func sectionOverridesChanged() {
+        let wasCollapsed = isCollapsed
+        menuBarEngine.reapplySections { [weak self] succeeded in
+            if wasCollapsed && !succeeded {
+                self?.didFailToCollapseMenuBar()
+            }
+        }
+    }
+
     @objc private func handleScreenParametersChanged() {
         // The engine re-applies recomputed lengths to the LIVE items, or a
         // display hot-plug leaves them at a stale length (PR #354).

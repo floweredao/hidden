@@ -28,3 +28,21 @@ Steps to enable:
 Steps to view always hidden icons:
 1. You right-click on “<” icon again to view and repeat the action to enable the feature. Enjoy 😉!
 ";
+
+/* Menu Bar Items (sections without ⌘-drag) */
+"Menu Bar Items…" = "Menu Bar Items…";
+"Menu Bar Items" = "Menu Bar Items";
+"Choose which section each app's menu bar icon is in, without dragging." = "Choose which section each app's menu bar icon is in, without dragging.";
+"Choose a section for each app. “By Position” follows where you ⌘-drag the icon in the menu bar." = "Choose a section for each app. “By Position” follows where you ⌘-drag the icon in the menu bar.";
+"Open Accessibility Settings…" = "Open Accessibility Settings…";
+"Refresh" = "Refresh";
+"Done" = "Done";
+"Reading menu bar items…" = "Reading menu bar items…";
+"Hidden Bar needs the Accessibility permission to read the menu bar. Allow it in System Settings > Privacy & Security > Accessibility." = "Hidden Bar needs the Accessibility permission to read the menu bar. Allow it in System Settings > Privacy & Security > Accessibility.";
+"The menu bar could not be read. Try Refresh." = "The menu bar could not be read. Try Refresh.";
+"No other app has a menu bar icon right now." = "No other app has a menu bar icon right now.";
+"not in the menu bar now" = "not in the menu bar now";
+"By Position (%@)" = "By Position (%@)";
+"Shown" = "Shown";
+"Hidden" = "Hidden";
+"Always Hidden" = "Always Hidden";

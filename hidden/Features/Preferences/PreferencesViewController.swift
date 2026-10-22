@@ -60,6 +60,7 @@ class PreferencesViewController: NSViewController {
         // checkboxes; hide it on hardware where the feature can't apply.
         // The containing stack view (detachesHiddenViews) reflows on its own.
         checkBoxNotchOverflow.isHidden = !NotchOverflowController.hasNotch
+        setUpMenuBarItemsButton()
         NotificationCenter.default.addObserver(self, selector: #selector(updateData), name: .prefsChanged, object: nil)
     }
 
@@ -211,6 +212,254 @@ class PreferencesViewController: NSViewController {
     private func updateClearButton(_ globalKeybindPreference : GlobalKeybindPreferences?) {
         btnClear.isEnabled = globalKeybindPreference != nil
     }
+}
+
+//MARK: - Menu Bar Items (sections without ⌘-drag)
+extension PreferencesViewController {
+
+    private var statusBarController: StatusBarController? {
+        return (NSApp.delegate as? AppDelegate)?.statusBarController
+    }
+
+    // ⌘-drag needs a pointer, so where the engine allows it each app's section
+    // can also be chosen here, by keyboard or VoiceOver. Placed right under the
+    // always-hidden row, the setting it belongs with.
+    fileprivate func setUpMenuBarItemsButton() {
+        guard let statusBar = statusBarController, statusBar.supportsSectionAssignment,
+              let row = checkBoxShowAlwaysHiddenSection.superview,
+              let column = row.superview as? NSStackView,
+              let index = column.arrangedSubviews.firstIndex(of: row) else { return }
+        let button = NSButton(title: "Menu Bar Items…".localized, target: self, action: #selector(showMenuBarItems(_:)))
+        button.bezelStyle = .rounded
+        button.setAccessibilityHelp("Choose which section each app's menu bar icon is in, without dragging.".localized)
+        column.insertArrangedSubview(button, at: index + 1)
+    }
+
+    @objc func showMenuBarItems(_ sender: Any?) {
+        guard let statusBar = statusBarController else { return }
+        presentAsSheet(MenuBarItemsViewController(statusBar: statusBar))
+    }
+}
+
+// Lists the apps with menu bar icons, each with a pop-up for its section:
+// where it was ⌘-dragged (the default), or Shown, Hidden or Always Hidden.
+// Plain controls, so Tab, the arrow keys and VoiceOver reach every app.
+final class MenuBarItemsViewController: NSViewController {
+    private static let positionTag = -1
+
+    private let statusBar: StatusBarController
+    private let statusLabel = NSTextField(wrappingLabelWithString: "")
+    private let openSettingsButton = NSButton()
+    private let listContainer = FlippedView()
+    private var grid: NSGridView?
+
+    init(statusBar: StatusBarController) {
+        self.statusBar = statusBar
+        super.init(nibName: nil, bundle: nil)
+        title = "Menu Bar Items".localized
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not used")
+    }
+
+    override func loadView() {
+        let titleLabel = NSTextField(labelWithString: "Menu Bar Items".localized)
+        titleLabel.font = .preferredFont(forTextStyle: .title2)
+        titleLabel.setAccessibilityRole(.staticText)
+
+        let info = NSTextField(wrappingLabelWithString: "Choose a section for each app. “By Position” follows where you ⌘-drag the icon in the menu bar.".localized)
+        info.textColor = .secondaryLabelColor
+
+        openSettingsButton.title = "Open Accessibility Settings…".localized
+        openSettingsButton.bezelStyle = .rounded
+        openSettingsButton.target = self
+        openSettingsButton.action = #selector(openAccessibilitySettings)
+        openSettingsButton.isHidden = true
+
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.documentView = listContainer
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        listContainer.translatesAutoresizingMaskIntoConstraints = false
+
+        let refresh = NSButton(title: "Refresh".localized, target: self, action: #selector(reload))
+        refresh.bezelStyle = .rounded
+        let done = NSButton(title: "Done".localized, target: self, action: #selector(done))
+        done.bezelStyle = .rounded
+        done.keyEquivalent = "\r"
+        let buttons = NSStackView(views: [refresh, NSView(), done])
+        buttons.orientation = .horizontal
+
+        let stack = NSStackView(views: [titleLabel, info, statusLabel, openSettingsButton, scroll, buttons])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 12
+        stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let root = NSView()
+        root.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: root.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            root.widthAnchor.constraint(greaterThanOrEqualToConstant: 460),
+            info.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40),
+            statusLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40),
+            scroll.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40),
+            buttons.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40),
+            scroll.heightAnchor.constraint(equalToConstant: 300),
+            listContainer.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            listContainer.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            listContainer.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+        ])
+        view = root
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        reload()
+    }
+
+    // Esc closes the sheet, like Done.
+    override func cancelOperation(_ sender: Any?) {
+        done()
+    }
+
+    @objc private func done() {
+        dismiss(nil)
+    }
+
+    @objc private func openAccessibilitySettings() {
+        Util.openAccessibilitySettings()
+    }
+
+    @objc private func reload() {
+        statusLabel.stringValue = "Reading menu bar items…".localized
+        statusLabel.isHidden = false
+        openSettingsButton.isHidden = true
+        statusBar.readSections { [weak self] layout in
+            self?.show(layout)
+        }
+    }
+
+    private func show(_ layout: MenuBarLayout?) {
+        grid?.removeFromSuperview()
+        grid = nil
+        guard AXIsProcessTrusted() else {
+            statusLabel.stringValue = "Hidden Bar needs the Accessibility permission to read the menu bar. Allow it in System Settings > Privacy & Security > Accessibility.".localized
+            openSettingsButton.isHidden = false
+            return
+        }
+        let positions = layout?.sections ?? [:]
+        let overrides = Preferences.sectionOverrides
+        let bundles = Set(positions.keys).union(overrides.keys)
+        guard !bundles.isEmpty else {
+            statusLabel.stringValue = layout == nil
+                ? "The menu bar could not be read. Try Refresh.".localized
+                : "No other app has a menu bar icon right now.".localized
+            return
+        }
+        statusLabel.isHidden = true
+
+        let entries = bundles.map { (bundle: $0, name: Self.displayName(of: $0)) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let rows: [[NSView]] = entries.map { entry in
+            let icon = NSImageView(image: Self.icon(of: entry.bundle))
+            icon.setAccessibilityElement(false)
+            let name = NSTextField(labelWithString: entry.name)
+            name.lineBreakMode = .byTruncatingTail
+            name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            let popup = makePopup(bundle: entry.bundle, name: entry.name,
+                                  position: positions[entry.bundle], override: overrides[entry.bundle])
+            return [icon, name, popup]
+        }
+        let grid = NSGridView(views: rows)
+        grid.rowSpacing = 8
+        grid.columnSpacing = 8
+        grid.rowAlignment = .firstBaseline
+        grid.column(at: 0).width = 20
+        grid.translatesAutoresizingMaskIntoConstraints = false
+        listContainer.addSubview(grid)
+        NSLayoutConstraint.activate([
+            grid.topAnchor.constraint(equalTo: listContainer.topAnchor),
+            grid.leadingAnchor.constraint(equalTo: listContainer.leadingAnchor),
+            grid.trailingAnchor.constraint(lessThanOrEqualTo: listContainer.trailingAnchor, constant: -16),
+            grid.bottomAnchor.constraint(equalTo: listContainer.bottomAnchor),
+        ])
+        self.grid = grid
+        view.window?.recalculateKeyViewLoop()
+        if let first = rows.first?.last {
+            view.window?.makeFirstResponder(first)
+        }
+    }
+
+    private func makePopup(bundle: String, name: String, position: MenuBarSection?, override: MenuBarSection?) -> NSPopUpButton {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        let where_ = position.map(Self.title(of:)) ?? "not in the menu bar now".localized
+        popup.addItem(withTitle: String(format: "By Position (%@)".localized, where_))
+        popup.lastItem?.tag = Self.positionTag
+        var sections: [MenuBarSection] = [.visible, .hidden]
+        if Preferences.alwaysHiddenSectionEnabled || override == .alwaysHidden {
+            sections.append(.alwaysHidden)
+        }
+        for section in sections {
+            popup.addItem(withTitle: Self.title(of: section))
+            popup.lastItem?.tag = section.rawValue
+        }
+        popup.selectItem(withTag: override?.rawValue ?? Self.positionTag)
+        popup.identifier = NSUserInterfaceItemIdentifier(bundle)
+        popup.target = self
+        popup.action = #selector(sectionChosen(_:))
+        // VoiceOver reads the app's name, then the chosen section.
+        popup.setAccessibilityLabel(name)
+        return popup
+    }
+
+    @objc private func sectionChosen(_ sender: NSPopUpButton) {
+        guard let bundle = sender.identifier?.rawValue else { return }
+        var overrides = Preferences.sectionOverrides
+        overrides[bundle] = MenuBarSection(rawValue: sender.selectedTag())
+        Preferences.sectionOverrides = overrides
+    }
+
+    private static func title(of section: MenuBarSection) -> String {
+        switch section {
+        case .visible: return "Shown".localized
+        case .hidden: return "Hidden".localized
+        case .alwaysHidden: return "Always Hidden".localized
+        }
+    }
+
+    private static func displayName(of bundle: String) -> String {
+        if let name = NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first?.localizedName {
+            return name
+        }
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) {
+            return FileManager.default.displayName(atPath: url.path)
+        }
+        return bundle
+    }
+
+    private static func icon(of bundle: String) -> NSImage {
+        let image: NSImage
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) {
+            image = NSWorkspace.shared.icon(forFile: url.path)
+        } else {
+            image = NSImage(systemSymbolName: "app", accessibilityDescription: nil) ?? NSImage()
+        }
+        image.size = NSSize(width: 18, height: 18)
+        return image
+    }
+}
+
+// Keeps the list pinned to the top of its scroll view.
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
 }
 
 //MARK: - Notch Overflow Section

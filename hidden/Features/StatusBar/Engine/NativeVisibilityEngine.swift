@@ -47,6 +47,8 @@ final class NativeVisibilityEngine: MenuBarEngine {
     private let isLTR: () -> Bool
     private let runningBundleIdentifiers: () -> [String]
     private let launchNotifications: NotificationCenter
+    // The per-app sections chosen in Settings; they win over positions.
+    private let sectionOverrides: () -> [String: MenuBarSection]
     private var launchObserver: NSObjectProtocol?
 
     private let expandedLength: CGFloat = 20
@@ -74,7 +76,8 @@ final class NativeVisibilityEngine: MenuBarEngine {
          itemFrame: @escaping (NSStatusItem) -> CGRect? = { $0.button?.window?.frame },
          isLTR: @escaping () -> Bool = { Constant.isUsingLTRLanguage },
          runningBundleIdentifiers: @escaping () -> [String] = { NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier) },
-         launchNotifications: NotificationCenter = NSWorkspace.shared.notificationCenter) {
+         launchNotifications: NotificationCenter = NSWorkspace.shared.notificationCenter,
+         sectionOverrides: @escaping () -> [String: MenuBarSection] = { [:] }) {
         self.items = items
         self.inventory = inventory
         self.visibility = visibility
@@ -83,6 +86,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
         self.isLTR = isLTR
         self.runningBundleIdentifiers = runningBundleIdentifiers
         self.launchNotifications = launchNotifications
+        self.sectionOverrides = sectionOverrides
         items.separatorItem.isVisible = false
         launchObserver = launchNotifications.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             self?.applicationLaunched()
@@ -130,7 +134,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
                 self.state = .expanded
                 return completion(.unavailable)
             }
-            self.activate(allowing: layout.bundles(in: [.visible]), hidesOnlyAlwaysHidden: false) { [weak self] succeeded in
+            self.activate(allowing: self.effective(layout).bundles(in: [.visible]), hidesOnlyAlwaysHidden: false) { [weak self] succeeded in
                 guard let self = self else { return }
                 self.state = succeeded ? .collapsed : .expanded
                 // On failure the whole bar is shown, separator included.
@@ -193,12 +197,70 @@ final class NativeVisibilityEngine: MenuBarEngine {
             }
             // Running apps the sections have not seen yet (launched since the last
             // read) are not in the always-hidden section, so they are shown.
-            let known = Set(layout.sections.keys)
+            let chosen = self.effective(layout)
+            let known = Set(chosen.sections.keys)
             let unseen = Set(self.runningBundleIdentifiers()).subtracting(known).sorted()
-            self.activate(allowing: layout.bundles(in: [.visible, .hidden]) + unseen, hidesOnlyAlwaysHidden: true) { [weak self] succeeded in
+            self.activate(allowing: chosen.bundles(in: [.visible, .hidden]) + unseen, hidesOnlyAlwaysHidden: true) { [weak self] succeeded in
                 guard let self = self, self.state == .expanded else { return }
                 self.setSeparatorsVisible(!succeeded)
             }
+        }
+    }
+
+    private func effective(_ layout: MenuBarLayout) -> MenuBarLayout {
+        return layout.applying(overrides: sectionOverrides(), alwaysHiddenEnabled: alwaysHiddenEnabled)
+    }
+
+    var supportsSectionAssignment: Bool {
+        return true
+    }
+
+    // For Settings: a fresh read when the bar is unrestricted (or only the
+    // always-hidden section is hidden), the last read otherwise. Unlike
+    // withLayout it leaves the cached sections and any activation in flight alone.
+    func readSections(completion: @escaping (MenuBarLayout?) -> Void) {
+        let restricted = assertion != nil
+        guard inventory.isAuthorized,
+              state != .calibrating,
+              !restricted || assertionHidesOnlyAlwaysHidden,
+              let arrow = items?.toggleItem,
+              let boundary = itemFrame(arrow) else { return completion(layout) }
+        let keptAlwaysHidden = restricted ? (layout?.sections.filter { $0.value == .alwaysHidden } ?? [:]) : [:]
+        let alwaysHiddenFrame = alwaysHiddenEnabled && !restricted ? items?.alwaysHiddenItem.flatMap(itemFrame) : nil
+        let isLTR = self.isLTR()
+        inventory.snapshot { [weak self] inventory in
+            guard let self = self else { return completion(nil) }
+            var read = MenuBarLayoutResolver.resolve(inventory: inventory,
+                                                     separatorFrame: boundary,
+                                                     alwaysHiddenSeparatorFrame: alwaysHiddenFrame,
+                                                     isLTR: isLTR,
+                                                     excludingBundle: self.ownBundleIdentifier)
+            read.sections.merge(keptAlwaysHidden) { _, kept in kept }
+            completion(read)
+        }
+    }
+
+    // Collapsed: swap in a restriction built from the cached sections and the new
+    // choices (new before old, so nothing flashes). Expanded: redo the expanded
+    // presentation, which also uses the choices.
+    func reapplySections(completion: @escaping (Bool) -> Void) {
+        switch state {
+        case .collapsed:
+            guard let layout = layout else { return completion(true) }
+            activate(allowing: effective(layout).bundles(in: [.visible]), hidesOnlyAlwaysHidden: false) { [weak self] succeeded in
+                guard let self = self else { return }
+                if !succeeded {
+                    self.state = .expanded
+                    self.setSeparatorsVisible(true)
+                }
+                completion(succeeded)
+            }
+        case .expanded:
+            applyExpandedPresentation()
+            completion(true)
+        case .calibrating, .unavailable:
+            // A collapse in flight reads the choices when it activates.
+            completion(true)
         }
     }
 
