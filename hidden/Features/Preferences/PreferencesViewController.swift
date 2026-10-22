@@ -666,30 +666,32 @@ extension PreferencesViewController {
     
     private func showHowToUseAlwayHiddenPopover(sender: NSButton) {
         let controller = NSViewController()
-        let label = NSTextField()
         let text = NSLocalizedString("Tutorial text", comment: "Step by step tutorial")
-        
-        label.stringValue = text
-        label.isBezeled = false
-        label.isEditable = false
+        // Wraps instead of running one line per paragraph, so long translations
+        // and larger text stay inside the popover.
+        let label = NSTextField(wrappingLabelWithString: text.trimmingCharacters(in: .whitespacesAndNewlines))
+        label.preferredMaxLayoutWidth = 360
         let view = NSView()
         view.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.topAnchor.constraint(equalTo: view.topAnchor),
-            label.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            label.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            label.trailingAnchor.constraint(equalTo: view.trailingAnchor)
-        ])
         label.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
+            label.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -12),
+            label.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 14),
+            label.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
+            label.widthAnchor.constraint(equalToConstant: 360)
+        ])
         controller.view = view
         
         let popover = NSPopover()
         popover.contentViewController = controller
-        popover.contentSize = controller.view.frame.size
+        popover.contentSize = view.fittingSize
         
         popover.behavior = .transient
         popover.animates = true
         
-        popover.show(relativeTo: self.view.bounds, of: sender , preferredEdge: NSRectEdge.maxX)
+        // Anchored to the help button's own bounds (the rect is in the button's
+        // coordinates); AppKit moves it to another edge when there is no room.
+        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: NSRectEdge.maxX)
     }
 }
