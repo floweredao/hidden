@@ -267,7 +267,16 @@ class StatusBarController: MenuBarItemProvider {
     // on-screen space, growing downward from below the button.
     private func showContextMenu(from button: NSStatusBarButton) {
         let menu = getContextMenu()
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: 0), in: button)
+        // Anchored in screen coordinates (in: nil) at the item's bottom-left, so
+        // the menu always grows downward from under the item. Anchored in the
+        // button instead, a menu with the hiding-problem rows was placed with its
+        // first row in the sliver behind the menu bar, where AppKit replaces it
+        // with a scroll caret (measured: first row at y=1 under a 30pt menu bar).
+        if let frame = button.window?.frame {
+            menu.popUp(positioning: nil, at: NSPoint(x: frame.minX, y: frame.minY), in: nil)
+        } else {
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: 0), in: button)
+        }
     }
     
     // The arrow is an image only, so VoiceOver gets a name for what pressing it
