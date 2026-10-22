@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- macOS 27: **Show Focus and mic/camera indicators when expanded** (Preferences, on by default). While Hidden Bar hides any icon, macOS hides the Focus icon and the mic/camera capsule whatever the allow list says; with this on, expanding hides nothing, so they show again. The always-hidden section then shows while expanded too; turn it off to keep that section hidden at the cost of the indicators.
+
 ## v1.11.1-fw.2 (2026-10-20)
 
 Fork release of floweredao/hidden, based on upstream v1.11.1.

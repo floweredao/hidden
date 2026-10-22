@@ -33,6 +33,15 @@ collapsed stay hidden until you expand.
 - macOS's own items (clock, Wi-Fi, Sound, Control Center) always stay visible.
   Older-style extras hosted by SystemUIServer (Time Machine, ...) follow the
   arrow like apps do.
+- While Hidden Bar hides any icon, macOS also hides the Focus icon, the
+  mic/camera/screen-recording capsule, Now Playing and Live Activities, and
+  clicking the clock does not open Notification Center. This comes with the
+  only hiding mechanism macOS 27 offers (assessment mode); no allow list keeps
+  them. The small colored dot in the screen's top-right corner stays. With
+  **Show Focus and mic/camera indicators when expanded** (on by default),
+  expanding hides nothing, so they come back; the always-hidden section then
+  shows while expanded too. Turn it off to keep that section hidden while
+  expanded, at the cost of the indicators.
 - Run Hidden Bar from `/Applications`; macOS only recognizes that copy as
   Hidden Bar, and a copy elsewhere hides its own arrow.
 - **Without dragging:** Preferences › **Menu Bar Items…** lists every app with
@@ -55,6 +64,7 @@ collapsed stay hidden until you expand.
 | Global shortcut | System-wide expand/collapse hotkey (F-keys display as F18, not Fn18) |
 | Enable always hidden section | A second zone whose icons stay hidden even when expanded; shown or hidden by right-clicking the arrow |
 | Menu Bar Items… | (macOS 27 direct build) Choose each app's section from a list instead of ⌘-dragging |
+| Show Focus and mic/camera indicators when expanded | (macOS 27 direct build, on by default) Expanding hides nothing, so macOS's indicators show; the always-hidden section shows while expanded too |
 | Use full menu bar on expanding | App becomes briefly "regular" while expanded (helps on tight menubars) |
 
 > **Always-hidden section, current behavior:** items in the always-hidden zone
