@@ -15,7 +15,9 @@ enum MenuBarEngineFactory {
         // the sandbox blocks the Accessibility reads that locate the sections.
         if usesArrowAsBoundary {
             #if HIDDENBAR_NATIVE_VISIBILITY
-            return NativeVisibilityEngine(items: items, sectionOverrides: { Preferences.sectionOverrides })
+            return NativeVisibilityEngine(items: items,
+                                          sectionOverrides: { Preferences.sectionOverrides },
+                                          keepsIndicatorsWhenExpanded: { Preferences.showsSystemIndicatorsWhenExpanded })
             #endif
         }
         return LegacyLengthEngine(items: items)

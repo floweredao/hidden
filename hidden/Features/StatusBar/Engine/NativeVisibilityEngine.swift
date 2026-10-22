@@ -28,6 +28,12 @@ import AppKit
 //   (the most visible section wins).
 // - macOS's own items (clock, Wi-Fi, Control Center...) are always kept visible:
 //   Accessibility cannot tell them apart, so they cannot be mapped to sections.
+// - While any restriction is held, macOS also hides the Focus icon, the
+//   mic/camera/screen-recording capsule, Now Playing and Live Activities,
+//   whatever the allow lists hold (no system item number or bundle keeps them).
+//   The only way to show them is to hold no restriction, so with
+//   keepsIndicatorsWhenExpanded the expanded bar holds none, always-hidden
+//   section included.
 // - Hidden items report stale positions, so sections are read from an
 //   unrestricted bar. While only the always-hidden section is hidden, the rest
 //   of the bar is still read live and only that section comes from the last
@@ -49,6 +55,9 @@ final class NativeVisibilityEngine: MenuBarEngine {
     private let launchNotifications: NotificationCenter
     // The per-app sections chosen in Settings; they win over positions.
     private let sectionOverrides: () -> [String: MenuBarSection]
+    // Whether expanding shows macOS's indicators (see Limits), at the cost of
+    // also showing the always-hidden section while expanded.
+    private let keepsIndicatorsWhenExpanded: () -> Bool
     private var launchObserver: NSObjectProtocol?
 
     private let expandedLength: CGFloat = 20
@@ -78,7 +87,8 @@ final class NativeVisibilityEngine: MenuBarEngine {
          isLTR: @escaping () -> Bool = { Constant.isUsingLTRLanguage },
          runningBundleIdentifiers: @escaping () -> [String] = { NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier) },
          launchNotifications: NotificationCenter = NSWorkspace.shared.notificationCenter,
-         sectionOverrides: @escaping () -> [String: MenuBarSection] = { [:] }) {
+         sectionOverrides: @escaping () -> [String: MenuBarSection] = { [:] },
+         keepsIndicatorsWhenExpanded: @escaping () -> Bool = { false }) {
         self.items = items
         self.inventory = inventory
         self.visibility = visibility
@@ -88,6 +98,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
         self.runningBundleIdentifiers = runningBundleIdentifiers
         self.launchNotifications = launchNotifications
         self.sectionOverrides = sectionOverrides
+        self.keepsIndicatorsWhenExpanded = keepsIndicatorsWhenExpanded
         items.separatorItem.isVisible = false
         launchObserver = launchNotifications.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             self?.applicationLaunched()
@@ -188,12 +199,18 @@ final class NativeVisibilityEngine: MenuBarEngine {
         return alwaysHiddenEnabled && alwaysHiddenSeparatorHidden
     }
 
+    // Whether the expanded bar keeps the always-hidden section hidden, which
+    // takes a restriction and with it macOS's indicators.
+    private var hidesAlwaysHiddenSectionWhenExpanded: Bool {
+        return hidesAlwaysHiddenSection && !keepsIndicatorsWhenExpanded()
+    }
+
     // Expanded shows the hidden section; the always-hidden section stays hidden
     // while "hide separators" is on, otherwise everything is revealed by dropping
     // the restriction altogether. Its separator comes back only if the icons
     // could not be hidden, so it never disappears on its own.
     private func applyExpandedPresentation() {
-        guard hidesAlwaysHiddenSection, visibility.isAvailable, inventory.isAuthorized else {
+        guard hidesAlwaysHiddenSectionWhenExpanded, visibility.isAvailable, inventory.isAuthorized else {
             return revealAll()
         }
         withLayout { [weak self] layout in

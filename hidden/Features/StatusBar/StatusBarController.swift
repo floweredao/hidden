@@ -117,6 +117,8 @@ class StatusBarController: MenuBarItemProvider {
         NotificationCenter.default.addObserver(self, selector: #selector(handleScreenParametersChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateAutoHide), name: .prefsChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(sectionOverridesChanged), name: .sectionOverridesChanged, object: nil)
+        // Re-presents the bar the same way: expanded drops or takes the restriction.
+        NotificationCenter.default.addObserver(self, selector: #selector(sectionOverridesChanged), name: .systemIndicatorsPreferenceChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(menuBeganTracking), name: NSMenu.didBeginTrackingNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(menuEndedTracking), name: NSMenu.didEndTrackingNotification, object: nil)
         // Sections are read from where the items sit, so wait until macOS has put

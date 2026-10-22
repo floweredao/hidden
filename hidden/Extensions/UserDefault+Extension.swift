@@ -21,5 +21,6 @@ extension UserDefaults {
         static let hoverToExpand = "hoverToExpand"
         static let notchOverflowEnabled = "notchOverflowEnabled"
         static let sectionOverrides = "sectionOverrides"
+        static let showsSystemIndicatorsWhenExpanded = "showsSystemIndicatorsWhenExpanded"
     }
 }

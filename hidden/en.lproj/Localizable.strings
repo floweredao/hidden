@@ -72,3 +72,7 @@ Steps to view always hidden icons:
 "How to Use the Always Hidden Section" = "How to Use the Always Hidden Section";
 "Could not update the login item" = "Could not update the login item";
 "Check System Settings > General > Login Items and make sure Hidden Bar is allowed." = "Check System Settings > General > Login Items and make sure Hidden Bar is allowed.";
+
+/* macOS 27 indicators while expanded */
+"Show Focus and mic/camera indicators when expanded" = "Show Focus and mic/camera indicators when expanded";
+"macOS hides these while any icon is hidden. When this is on, the always-hidden section also shows while expanded." = "macOS hides these while any icon is hidden. When this is on, the always-hidden section also shows while expanded.";
