@@ -7,6 +7,7 @@
 //
 
 import AppKit
+import ApplicationServices
 
 class StatusBarController: MenuBarItemProvider {
     
@@ -52,6 +53,10 @@ class StatusBarController: MenuBarItemProvider {
         }
     }
 
+    // Menus of this app being tracked (the context menu, Notch Overflow). The
+    // pointer can be anywhere while one is driven by the keyboard.
+    private var trackedMenuCount = 0
+
     private var hoverMonitor: Any?
     private var hoverDwellTimer: Timer?
 
@@ -78,6 +83,31 @@ class StatusBarController: MenuBarItemProvider {
         return wc.isWindowLoaded && (wc.window?.isVisible ?? false)
     }
     
+    // Keyboard (Control-F8, or VoiceOver's menu extras) is in the menu bar or
+    // one of its menus: the focused element anywhere is a menu-bar item or a
+    // menu. Needs Accessibility; without it only the pointer and this app's own
+    // menus defer the collapse.
+    private var isMenuBarNavigationActive: Bool {
+        guard AXIsProcessTrusted() else { return false }
+        let systemWide = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(systemWide, 0.1)
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+              let element = focused else { return false }
+        var role: CFTypeRef?
+        AXUIElementCopyAttributeValue(element as! AXUIElement, kAXRoleAttribute as CFString, &role)
+        let menuRoles: Set<String> = [kAXMenuBarRole, kAXMenuBarItemRole, kAXMenuRole, kAXMenuItemRole, "AXMenuExtra"]
+        return (role as? String).map(menuRoles.contains) ?? false
+    }
+
+    @objc private func menuBeganTracking() {
+        trackedMenuCount += 1
+    }
+
+    @objc private func menuEndedTracking() {
+        trackedMenuCount = max(0, trackedMenuCount - 1)
+    }
+
     //MARK: - Methods
     init() {
         setupUI()
@@ -87,6 +117,8 @@ class StatusBarController: MenuBarItemProvider {
         NotificationCenter.default.addObserver(self, selector: #selector(handleScreenParametersChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateAutoHide), name: .prefsChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(sectionOverridesChanged), name: .sectionOverridesChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(menuBeganTracking), name: NSMenu.didBeginTrackingNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(menuEndedTracking), name: NSMenu.didEndTrackingNotification, object: nil)
         // Sections are read from where the items sit, so wait until macOS has put
         // them back in place before hiding the always-hidden section; read at
         // launch, the separator has no position yet.
@@ -346,10 +378,12 @@ class StatusBarController: MenuBarItemProvider {
         self.timer = Timer.scheduledTimer(withTimeInterval: Preferences.numberOfSecondForAutoHide, repeats: false) { [weak self] _ in
             guard let self = self, Preferences.isAutoHide else { return }
             // Don't yank the bar shut mid-interaction: while the pointer is in the
-            // menubar (hovering, clicking, dragging icons), defer and re-arm.
+            // menubar (hovering, clicking, dragging icons), a menu is open, or the
+            // keyboard or VoiceOver is moving through the menu bar, defer and re-arm.
             // Intentionally unbounded; each re-arm invalidates the previous timer,
             // so deferral never accumulates timers.
-            if self.isMouseInMenuBar || self.isPreferencesWindowVisible {
+            if self.isMouseInMenuBar || self.isPreferencesWindowVisible
+                || self.trackedMenuCount > 0 || self.isMenuBarNavigationActive {
                 self.startTimerToAutoHide()
             } else {
                 self.collapseMenuBar()
