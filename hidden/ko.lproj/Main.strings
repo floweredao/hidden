@@ -41,8 +41,8 @@
 /* Class = "NSTextFieldCell"; title = "Shown"; ObjectID = "iyS-g5-5mk"; */
 "iyS-g5-5mk.title" = "표시";
 
-/* Class = "NSTextFieldCell"; title = "⭐️Always Hidden"; ObjectID = "1jU-1x-cFf"; */
-"1jU-1x-cFf.title" = "⭐️항상 숨김";
+/* Class = "NSTextFieldCell"; title = "Always Hidden"; ObjectID = "1jU-1x-cFf"; */
+"1jU-1x-cFf.title" = "항상 숨김";
 
 /* Class = "NSTextFieldCell"; title = "Settings"; ObjectID = "1Is-Ut-a9h"; */
 "1Is-Ut-a9h.title" = "설정";

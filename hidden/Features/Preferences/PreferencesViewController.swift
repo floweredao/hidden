@@ -45,6 +45,9 @@ class PreferencesViewController: NSViewController {
     private let hidingStatusLabel = NSTextField(wrappingLabelWithString: "")
     private let hidingStatusButton = NSButton()
 
+    // Why the login item could not be changed, right under its checkbox.
+    private let loginErrorRow = NSStackView()
+
     public var listening = false {
         didSet {
             let isHighlight = listening
@@ -71,6 +74,11 @@ class PreferencesViewController: NSViewController {
         // The ⌫ title alone is read as a symbol, not as what the button does.
         btnClear.setAccessibilityLabel("Clear Global Shortcut".localized)
         btnClear.toolTip = "Clear Global Shortcut".localized
+        setUpLoginErrorRow()
+        makeTextAndTargetsFlexible()
+        // The shortcut is shown as the current keyboard layout types it.
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(inputSourceChanged),
+                                                            name: NSNotification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateData), name: .prefsChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateHidingStatus), name: .hidingStatusChanged, object: nil)
     }
@@ -79,6 +87,7 @@ class PreferencesViewController: NSViewController {
         // Balance the viewDidLoad observer (PRs #335/#346).
         NotificationCenter.default.removeObserver(self, name: .prefsChanged, object: nil)
         NotificationCenter.default.removeObserver(self, name: .hidingStatusChanged, object: nil)
+        DistributedNotificationCenter.default().removeObserver(self)
     }
 
     static func initWithStoryboard() -> PreferencesViewController {
@@ -91,13 +100,64 @@ class PreferencesViewController: NSViewController {
         let wanted = sender.state == .on
         Preferences.isAutoStart = wanted
         // On failure the pref reverts (the checkbox already snapped back via
-        // prefsChanged); tell the user why instead of swallowing the error.
-        if Preferences.isAutoStart != wanted {
-            let alert = NSAlert()
-            alert.messageText = "Could not update the login item".localized
-            alert.informativeText = "Check System Settings > General > Login Items and make sure Hidden Bar is allowed.".localized
-            alert.alertStyle = .warning
-            alert.runModal()
+        // prefsChanged); say why right under it, without blocking the window.
+        loginErrorRow.isHidden = Preferences.isAutoStart == wanted
+    }
+
+    @objc private func inputSourceChanged() {
+        loadHotkey()
+    }
+
+    @objc private func openLoginItemsSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func setUpLoginErrorRow() {
+        guard let column = checkBoxLogin.superview as? NSStackView,
+              let index = column.arrangedSubviews.firstIndex(of: checkBoxLogin) else { return }
+        let message = NSTextField(wrappingLabelWithString: "Could not update the login item".localized + ". "
+                                  + "Check System Settings > General > Login Items and make sure Hidden Bar is allowed.".localized)
+        message.textColor = .systemRed
+        message.preferredMaxLayoutWidth = 300
+        let open = NSButton(title: "Open Login Items Settings…".localized, target: self, action: #selector(openLoginItemsSettings))
+        open.bezelStyle = .rounded
+        loginErrorRow.setViews([message, open], in: .leading)
+        loginErrorRow.orientation = .vertical
+        loginErrorRow.alignment = .leading
+        loginErrorRow.spacing = 6
+        loginErrorRow.isHidden = true
+        column.insertArrangedSubview(loginErrorRow, at: index + 1)
+    }
+
+    // The storyboard fixes sizes for one language at the default text size:
+    // the description wraps instead of clipping, and every checkbox and the
+    // help button get room to hit (20pt rows, 28pt help target).
+    private func makeTextAndTargetsFlexible() {
+        if let cell = textFieldTitle.cell {
+            cell.wraps = true
+            cell.lineBreakMode = .byWordWrapping
+            cell.usesSingleLineMode = false
+        }
+        textFieldTitle.maximumNumberOfLines = 0
+        textFieldTitle.preferredMaxLayoutWidth = 560
+        let checkBoxes: [NSButton] = [checkBoxLogin, checkBoxShowPreferences, checkBoxUseFullStatusbar,
+                                      checkBoxShowAlwaysHiddenSection, checkBoxAutoHide, checkBoxNotchOverflow]
+        for box in checkBoxes {
+            box.heightAnchor.constraint(greaterThanOrEqualToConstant: 20).isActive = true
+        }
+        // The shortcut buttons are the only other targets small enough to miss.
+        for button in [btnShortcut, btnClear] {
+            button?.heightAnchor.constraint(greaterThanOrEqualToConstant: 28).isActive = true
+        }
+        if let help = checkBoxShowAlwaysHiddenSection.superview?.subviews
+            .compactMap({ $0 as? NSButton }).first(where: { $0.bezelStyle == .helpButton }) {
+            help.setAccessibilityLabel("How to Use the Always Hidden Section".localized)
+            NSLayoutConstraint.activate([
+                help.widthAnchor.constraint(greaterThanOrEqualToConstant: 28),
+                help.heightAnchor.constraint(greaterThanOrEqualToConstant: 28),
+            ])
         }
     }
     
@@ -594,8 +654,6 @@ extension PreferencesViewController {
         dateTimeLabel.sizeToFit()
         dateTimeLabel.backgroundColor = .clear
         statusBarStackView.addArrangedSubview(dateTimeLabel)
-        NSLayoutConstraint.activate([dateTimeLabel.heightAnchor.constraint(equalToConstant: imageWidth)
-        ])
        
         NSLayoutConstraint.activate([
             arrowPointToHiddenImage.centerXAnchor.constraint(equalTo: statusBarStackView.arrangedSubviews[3].centerXAnchor)
@@ -639,8 +697,6 @@ extension PreferencesViewController {
         dateTimeLabel.sizeToFit()
         dateTimeLabel.backgroundColor = .clear
         statusBarStackView.addArrangedSubview(dateTimeLabel)
-        NSLayoutConstraint.activate([dateTimeLabel.heightAnchor.constraint(equalToConstant: imageWidth)
-        ])
         
         NSLayoutConstraint.activate([
             arrowPointToAlwayHiddenImage.centerXAnchor.constraint(equalTo: statusBarStackView.arrangedSubviews[4].centerXAnchor)

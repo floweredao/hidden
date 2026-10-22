@@ -435,7 +435,7 @@ between sections to configure Hidden Bar.</string>
                                         <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" ambiguous="YES" translatesAutoresizingMaskIntoConstraints="NO" id="vlT-cT-cRT">
                                             <rect key="frame" x="57" y="141" width="110" height="28"/>
                                             <textFieldCell key="cell" lineBreakMode="clipping" title="Hidden" id="cXt-8R-PHo">
-                                                <font key="font" metaFont="system" size="24"/>
+                                                <font key="font" textStyle="title1"/>
                                                 <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                             </textFieldCell>
@@ -443,7 +443,7 @@ between sections to configure Hidden Bar.</string>
                                         <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" ambiguous="YES" translatesAutoresizingMaskIntoConstraints="NO" id="U3K-oK-4ET">
                                             <rect key="frame" x="209" y="141" width="78" height="28"/>
                                             <textFieldCell key="cell" lineBreakMode="clipping" title="Shown" id="iyS-g5-5mk">
-                                                <font key="font" metaFont="system" size="24"/>
+                                                <font key="font" textStyle="title1"/>
                                                 <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                             </textFieldCell>
@@ -589,8 +589,8 @@ between sections to configure Hidden Bar.</string>
                                         </imageView>
                                         <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" ambiguous="YES" translatesAutoresizingMaskIntoConstraints="NO" id="eBG-Wk-IXv">
                                             <rect key="frame" x="314" y="141" width="189" height="28"/>
-                                            <textFieldCell key="cell" lineBreakMode="clipping" title="⭐️Always Hidden" id="1jU-1x-cFf">
-                                                <font key="font" metaFont="system" size="24"/>
+                                            <textFieldCell key="cell" lineBreakMode="clipping" title="Always Hidden" id="1jU-1x-cFf">
+                                                <font key="font" textStyle="title1"/>
                                                 <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                             </textFieldCell>
@@ -694,7 +694,7 @@ between sections to configure Hidden Bar.</string>
                                                     <real value="3.4028234663852886e+38"/>
                                                 </customSpacing>
                                             </stackView>
-                                            <stackView distribution="fill" orientation="horizontal" alignment="top" spacing="2" horizontalStackHuggingPriority="249.99998474121094" verticalStackHuggingPriority="249.99998474121094" detachesHiddenViews="YES" translatesAutoresizingMaskIntoConstraints="NO" id="bf8-qr-hjT">
+                                            <stackView distribution="fill" orientation="horizontal" alignment="top" spacing="8" horizontalStackHuggingPriority="249.99998474121094" verticalStackHuggingPriority="249.99998474121094" detachesHiddenViews="YES" translatesAutoresizingMaskIntoConstraints="NO" id="bf8-qr-hjT">
                                                 <rect key="frame" x="0.0" y="0.0" width="328" height="25"/>
                                                 <subviews>
                                                     <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="gj1-Ms-4No">
@@ -741,7 +741,7 @@ between sections to configure Hidden Bar.</string>
                                                 <constraints>
                                                     <constraint firstItem="Hg0-zx-srA" firstAttribute="centerY" secondItem="gj1-Ms-4No" secondAttribute="centerY" id="FQf-eC-BlM"/>
                                                     <constraint firstItem="T6r-65-Oor" firstAttribute="centerY" secondItem="gj1-Ms-4No" secondAttribute="centerY" id="IJi-2B-k5w"/>
-                                                    <constraint firstItem="Hg0-zx-srA" firstAttribute="leading" secondItem="gj1-Ms-4No" secondAttribute="trailing" constant="120" id="Uic-p2-7gT"/>
+                                                    <constraint firstItem="Hg0-zx-srA" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="gj1-Ms-4No" secondAttribute="trailing" constant="120" id="Uic-p2-7gT"/>
                                                     <constraint firstAttribute="height" constant="25" id="dVP-Ed-gEx"/>
                                                 </constraints>
                                                 <visibilityPriorities>
@@ -826,7 +826,7 @@ between sections to configure Hidden Bar.</string>
                                                         <constraint firstAttribute="bottom" secondItem="yKf-P1-I45" secondAttribute="bottom" constant="8" id="67S-Hs-7h8"/>
                                                         <constraint firstItem="yKf-P1-I45" firstAttribute="top" secondItem="N9Y-29-pHK" secondAttribute="top" constant="8" id="6M6-hr-kBI"/>
                                                         <constraint firstAttribute="trailing" secondItem="D4j-NZ-37N" secondAttribute="trailing" constant="8" id="7pT-aH-scK"/>
-                                                        <constraint firstItem="D4j-NZ-37N" firstAttribute="leading" secondItem="yKf-P1-I45" secondAttribute="trailing" constant="2" id="JJz-dt-PK1"/>
+                                                        <constraint firstItem="D4j-NZ-37N" firstAttribute="leading" secondItem="yKf-P1-I45" secondAttribute="trailing" constant="8" id="JJz-dt-PK1"/>
                                                         <constraint firstItem="yKf-P1-I45" firstAttribute="leading" secondItem="N9Y-29-pHK" secondAttribute="leading" constant="8" id="Pbs-P5-Whj"/>
                                                         <constraint firstItem="D4j-NZ-37N" firstAttribute="centerY" secondItem="yKf-P1-I45" secondAttribute="centerY" id="vNp-Kk-zrC"/>
                                                     </constraints>

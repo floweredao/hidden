@@ -6,7 +6,7 @@
   Copyright © 2020 Dwarves Foundation. All rights reserved.
 */
 
-"Preferences..." = "Preferences...";
+"Preferences..." = "Preferences…";
 "Toggle Auto Collapse" = "Toggle Auto Collapse";
 "Enable Auto Collapse" = "Enable Auto Collapse";
 "Disable Auto Collapse" = "Disable Auto Collapse";
@@ -25,7 +25,7 @@ Steps to enable:
 2. Hold  ⌘ and drag it on the left-hand side of the normal bar, then move any icons you want to disappear on the left of that bar.
 3. Finally, please right-click on the collapse “<” icon to make it disappear.
 Steps to view always hidden icons:
-1. You right-click on “<” icon again to view and repeat the action to enable the feature. Enjoy 😉!
+1. You right-click on “<” icon again to view and repeat the action to enable the feature.
 ";
 
 /* Menu Bar Items (sections without ⌘-drag) */
@@ -66,3 +66,9 @@ Steps to view always hidden icons:
 "Show Hidden Menu Bar Icons" = "Show Hidden Menu Bar Icons";
 "Hide Menu Bar Icons" = "Hide Menu Bar Icons";
 "Clear Global Shortcut" = "Clear Global Shortcut";
+
+/* Login item error and help button */
+"Open Login Items Settings…" = "Open Login Items Settings…";
+"How to Use the Always Hidden Section" = "How to Use the Always Hidden Section";
+"Could not update the login item" = "Could not update the login item";
+"Check System Settings > General > Login Items and make sure Hidden Bar is allowed." = "Check System Settings > General > Login Items and make sure Hidden Bar is allowed.";
