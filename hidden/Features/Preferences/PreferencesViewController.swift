@@ -508,7 +508,13 @@ extension PreferencesViewController {
         let imageWidth: CGFloat = 16
         
         
-        let images = ["ico_1","ico_2","ico_3","seprated", "ico_collapse","ico_4","ico_5","ico_6","ico_7"].map { imageName in
+        // The picture shows the boundary the running engine really uses: the
+        // arrow on macOS 27's native hiding, the | separator otherwise.
+        let arrowIsBoundary = MenuBarEngineFactory.usesArrowAsBoundary
+        let names = arrowIsBoundary
+            ? ["ico_1","ico_2","ico_3","ico_collapse","ico_4","ico_5","ico_6","ico_7"]
+            : ["ico_1","ico_2","ico_3","seprated", "ico_collapse","ico_4","ico_5","ico_6","ico_7"]
+        let images = names.map { imageName in
             NSImageView(image: NSImage(named: imageName)!)
         }
         
@@ -537,6 +543,7 @@ extension PreferencesViewController {
         NSLayoutConstraint.activate([
             arrowPointToHiddenImage.centerXAnchor.constraint(equalTo: statusBarStackView.arrangedSubviews[3].centerXAnchor)
         ])
+        describeBoundary(arrowIsBoundary)
     }
     
     func alwayHideStatusBar() {
@@ -546,7 +553,13 @@ extension PreferencesViewController {
         let imageWidth: CGFloat = 16
         
         
-        let images = ["ico_1","ico_2","ico_3","ico_4", "seprated_1","ico_5","ico_6","seprated", "ico_collapse","ico_7"].map { imageName in
+        let arrowIsBoundary = MenuBarEngineFactory.usesArrowAsBoundary
+        let names = arrowIsBoundary
+            ? ["ico_1","ico_2","ico_3","ico_4", "seprated_1","ico_5","ico_6","ico_collapse","ico_7"]
+            : ["ico_1","ico_2","ico_3","ico_4", "seprated_1","ico_5","ico_6","seprated", "ico_collapse","ico_7"]
+        // Index 7 is the boundary in both: the arrow, or the | separator.
+        let boundaryIndex = 7
+        let images = names.map { imageName in
             NSImageView(image: NSImage(named: imageName)!)
         }
         
@@ -576,8 +589,18 @@ extension PreferencesViewController {
             arrowPointToAlwayHiddenImage.centerXAnchor.constraint(equalTo: statusBarStackView.arrangedSubviews[4].centerXAnchor)
         ])
         NSLayoutConstraint.activate([
-            arrowPointToHiddenImage.centerXAnchor.constraint(equalTo: statusBarStackView.arrangedSubviews[7].centerXAnchor)
+            arrowPointToHiddenImage.centerXAnchor.constraint(equalTo: statusBarStackView.arrangedSubviews[boundaryIndex].centerXAnchor)
         ])
+        describeBoundary(arrowIsBoundary)
+    }
+
+    // The line under the picture says how to move icons for this engine.
+    private func describeBoundary(_ arrowIsBoundary: Bool) {
+        guard arrowIsBoundary else { return }
+        let text = statusBarController?.supportsSectionAssignment ?? false
+            ? "In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them, or use Menu Bar Items… below."
+            : "In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them."
+        textFieldTitle.stringValue = text.localized
     }
     
     @IBAction func btnAlwayHiddenHelpPressed(_ sender: NSButton) {

@@ -18,7 +18,6 @@
 "Hidden Behind Notch (%d)" = "Hidden Behind Notch (%d)";
 "Visible (%d)" = "Visible (%d)";
 "No items found (grant Accessibility permission)" = "No items found (grant Accessibility permission)";
-"Enable Notch Overflow (right-click ‹ to access hidden icons)" = "Enable Notch Overflow (right-click ‹ to access hidden icons)";
 "Tutorial text" = "
 Use the always hidden feature to keep your icons tidy. Here's how to set it
 Steps to enable:
@@ -46,3 +45,7 @@ Steps to view always hidden icons:
 "Shown" = "Shown";
 "Hidden" = "Hidden";
 "Always Hidden" = "Always Hidden";
+
+/* Settings picture: the arrow is the boundary (macOS 27 native hiding) */
+"In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them, or use Menu Bar Items… below." = "In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them, or use Menu Bar Items… below.";
+"In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them." = "In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them.";

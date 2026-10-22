@@ -757,7 +757,7 @@ between sections to configure Hidden Bar.</string>
                                             </stackView>
                                             <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="Ntc-Ov-Bx1" userLabel="Check Box Notch Overflow">
                                                 <rect key="frame" x="-2" y="-25" width="320" height="18"/>
-                                                <buttonCell key="cell" type="check" title="Enable Notch Overflow (Option-click &#8249; to see icons behind the notch)" bezelStyle="regularSquare" imagePosition="left" inset="2" id="Ntc-Ov-Cl1">
+                                                <buttonCell key="cell" type="check" title="Enable Notch Overflow (Option-click &#8249;, then choose &#8220;Show Notch Items&#8221;)" bezelStyle="regularSquare" imagePosition="left" inset="2" id="Ntc-Ov-Cl1">
                                                     <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
                                                     <font key="font" metaFont="system"/>
                                                 </buttonCell>
