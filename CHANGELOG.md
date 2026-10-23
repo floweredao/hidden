@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- macOS 27: collapsing keeps the **Focus icon, the mic/camera capsule, Now Playing and Live Activities** visible (on by default, every build). Hidden Bar now hides by making the `|` separator just shorter than the longest item macOS 27 accepts, so the bar runs out of room and macOS moves the icons left of it into its own « menu, one click away. No visibility restriction is held, so macOS keeps its indicators. The technique and its length limits come from Pelmet (MIT). As on macOS 26, the `|` separator is the boundary: ⌘-drag the icons to hide to its left. To go back to hiding icons completely (assessment mode, which takes the indicators with it), run `defaults write com.dwarvesv.minimalbar hidesIntoSystemOverflow -bool NO` and relaunch.
 - macOS 27: **Show Focus and mic/camera indicators when expanded** (Preferences, on by default). While Hidden Bar hides any icon, macOS hides the Focus icon and the mic/camera capsule whatever the allow list says; with this on, expanding hides nothing, so they show again. The always-hidden section then shows while expanded too; turn it off to keep that section hidden at the cost of the indicators.
 
 ## v1.11.1-fw.2 (2026-10-20)
