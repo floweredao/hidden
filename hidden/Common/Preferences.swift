@@ -157,6 +157,19 @@ enum Preferences {
         }
     }
 
+    // macOS 27 direct build: hide by turning apps off in System Settings ›
+    // Menu Bar (MenuBarAgent restarts on each change). Wins over the overflow
+    // collapse. Read once at launch, when the engine is picked.
+    static var hidesWithMenuBarSettings: Bool {
+        get {
+            UserDefaults.standard.bool(forKey: UserDefaults.Key.hidesWithMenuBarSettings)
+        }
+
+        set {
+            UserDefaults.standard.set(newValue, forKey: UserDefaults.Key.hidesWithMenuBarSettings)
+        }
+    }
+
     static var notchOverflowEnabled: Bool {
         get {
             UserDefaults.standard.bool(forKey: UserDefaults.Key.notchOverflowEnabled)

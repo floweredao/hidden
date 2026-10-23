@@ -48,6 +48,12 @@ class AppDelegate: NSObject, NSApplicationDelegate{
         guard ensureSingleInstance() else { return }
         registerDefaultValues()
         detectLTRLang()
+        #if HIDDENBAR_NATIVE_VISIBILITY
+        // A session that ended while collapsed left apps switched off.
+        if MenuBarEngineFactory.usesMenuBarSettings {
+            MenuBarAllowListBridge.shared.restoreAfterUnexpectedExit()
+        }
+        #endif
         statusBarController = StatusBarController()
         setupAutoStartApp()
         setupHotKey()
@@ -55,6 +61,15 @@ class AppDelegate: NSObject, NSApplicationDelegate{
         updaterController.startUpdater()
         #endif
         openPreferencesIfNeeded()
+    }
+
+    // Quitting while collapsed must not leave apps switched off in Settings.
+    func applicationWillTerminate(_ notification: Notification) {
+        #if HIDDENBAR_NATIVE_VISIBILITY
+        if MenuBarEngineFactory.usesMenuBarSettings {
+            MenuBarAllowListBridge.shared.restoreAll()
+        }
+        #endif
     }
 
     // Opening the app again (Finder, Spotlight, Launchpad) shows Preferences, so
@@ -119,7 +134,8 @@ class AppDelegate: NSObject, NSApplicationDelegate{
         UserDefaults.Key.alwaysHiddenSectionEnabled: false,
         UserDefaults.Key.notchOverflowEnabled: true,
         UserDefaults.Key.showsSystemIndicatorsWhenExpanded: true,
-        UserDefaults.Key.hidesIntoSystemOverflow: true
+        UserDefaults.Key.hidesIntoSystemOverflow: true,
+        UserDefaults.Key.hidesWithMenuBarSettings: true
     ]
 
     func registerDefaultValues() {
