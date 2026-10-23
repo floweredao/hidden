@@ -628,3 +628,98 @@ final class UnavailableReasonTests: XCTestCase {
         XCTAssertNil(engine.unavailableReason, "a collapse that works clears the message")
     }
 }
+
+// MARK: - macOS 27 overflow collapse
+
+final class OverflowCollapseGeometryTests: XCTestCase {
+    func testPlainDisplayStaysUnderHalfItsWidthAndSpansIt() {
+        let plan = OverflowCollapseGeometry.plan(displays: [.init(width: 1920)])
+        XCTAssertEqual(plan.unitLength, 896)
+        XCTAssertGreaterThanOrEqual(plan.unitLength * CGFloat(plan.activeSpacers + 1), 1920)
+    }
+
+    func testNotchedDisplayUsesTheAreaRightOfTheNotch() {
+        let plan = OverflowCollapseGeometry.plan(displays: [.init(width: 1512, statusWidth: 663.5)])
+        XCTAssertLessThan(plan.unitLength, 515, "535 pt is discarded on this display")
+        XCTAssertGreaterThanOrEqual(plan.unitLength * CGFloat(plan.activeSpacers + 1), 663.5)
+    }
+
+    func testMixedDisplaysUseTheNarrowestLimitAndTheWidestArea() {
+        let plan = OverflowCollapseGeometry.plan(displays: [.init(width: 1280), .init(width: 6016)])
+        XCTAssertEqual(plan.unitLength, 576)
+        XCTAssertGreaterThanOrEqual(plan.unitLength * CGFloat(plan.activeSpacers + 1), 6016)
+        XCTAssertLessThanOrEqual(plan.activeSpacers, OverflowCollapseGeometry.spacerCount)
+    }
+
+    func testNoDisplayFallsBack() {
+        XCTAssertEqual(OverflowCollapseGeometry.plan(displays: []), .init(unitLength: 200, activeSpacers: 0))
+    }
+}
+
+final class OverflowCollapseEngineTests: XCTestCase {
+    private let bar = NSStatusBar()
+    private var spacers: [String: NSStatusItem] = [:]
+
+    private func makeEngine(_ items: FakeItems) -> OverflowCollapseEngine {
+        return OverflowCollapseEngine(items: items,
+                                      displays: { [.init(width: 1920)] },
+                                      makeSpacer: { [unowned self] name in
+                                          let spacer = self.bar.statusItem(withLength: 0)
+                                          self.spacers[name] = spacer
+                                          return spacer
+                                      })
+    }
+
+    private var spacerLengths: [CGFloat] {
+        return (0..<OverflowCollapseGeometry.spacerCount).map { spacers[OverflowCollapseEngine.spacerAutosaveName($0)]!.length }
+    }
+
+    func testRegistersEverySpacerOnce() {
+        _ = makeEngine(FakeItems())
+        XCTAssertEqual(spacers.count, OverflowCollapseGeometry.spacerCount)
+        XCTAssertEqual(Set(spacerLengths), [0])
+    }
+
+    func testCollapseInflatesTheSeparatorUnderTheLimitAndExpandRestoresIt() {
+        let items = FakeItems()
+        let engine = makeEngine(items)
+        XCTAssertTrue(items.separatorItem.isVisible, "the separator is the boundary, so it stays in the bar")
+
+        var result: CollapseResult?
+        engine.collapse { result = $0 }
+        XCTAssertEqual(result, .collapsed)
+        XCTAssertEqual(engine.state, .collapsed)
+        XCTAssertEqual(items.separatorItem.length, 896)
+        XCTAssertEqual(spacerLengths.filter { $0 == 896 }.count, 2)
+
+        engine.expand()
+        XCTAssertEqual(engine.state, .expanded)
+        XCTAssertEqual(items.separatorItem.length, 20)
+        XCTAssertEqual(Set(spacerLengths), [0])
+    }
+
+    func testExpandedWithSeparatorsHiddenInflatesOnlyTheAlwaysHiddenSeparator() {
+        let items = FakeItems()
+        let engine = makeEngine(items)
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 896)
+        XCTAssertEqual(items.separatorItem.length, 20)
+        XCTAssertEqual(spacerLengths.filter { $0 == 896 }.count, 2)
+
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
+        XCTAssertEqual(Set(spacerLengths), [0])
+
+        engine.updateAlwaysHiddenSection(enabled: false, separatorHidden: false)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+    }
+
+    func testCollapsedInflatesTheRegularSeparatorEvenWithSeparatorsHidden() {
+        let items = FakeItems()
+        let engine = makeEngine(items)
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
+        engine.collapse { _ in }
+        XCTAssertEqual(items.separatorItem.length, 896)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
+    }
+}

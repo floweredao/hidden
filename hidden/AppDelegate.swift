@@ -118,7 +118,8 @@ class AppDelegate: NSObject, NSApplicationDelegate{
         UserDefaults.Key.areSeparatorsHidden: false,
         UserDefaults.Key.alwaysHiddenSectionEnabled: false,
         UserDefaults.Key.notchOverflowEnabled: true,
-        UserDefaults.Key.showsSystemIndicatorsWhenExpanded: true
+        UserDefaults.Key.showsSystemIndicatorsWhenExpanded: true,
+        UserDefaults.Key.hidesIntoSystemOverflow: true
     ]
 
     func registerDefaultValues() {

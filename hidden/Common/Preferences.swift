@@ -144,6 +144,19 @@ enum Preferences {
         }
     }
 
+    // macOS 27: hide by pushing icons into macOS's « menu, which holds no
+    // visibility restriction, so the Focus icon and the mic/camera capsule stay.
+    // Read once at launch, when the engine is picked.
+    static var hidesIntoSystemOverflow: Bool {
+        get {
+            UserDefaults.standard.bool(forKey: UserDefaults.Key.hidesIntoSystemOverflow)
+        }
+
+        set {
+            UserDefaults.standard.set(newValue, forKey: UserDefaults.Key.hidesIntoSystemOverflow)
+        }
+    }
+
     static var notchOverflowEnabled: Bool {
         get {
             UserDefaults.standard.bool(forKey: UserDefaults.Key.notchOverflowEnabled)
