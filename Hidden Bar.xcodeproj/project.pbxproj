@@ -66,6 +66,7 @@
 		83E0D6A1FA184019932AECA5 /* AutoStart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A329E615845473D946DA3C2 /* AutoStart.swift */; };
 		160B7980C8A44829A864BBA6 /* AutoStart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A329E615845473D946DA3C2 /* AutoStart.swift */; };
 		9B1765C0B5634CFABD06A916 /* AutoStartTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F013C3E5499B4EA7B816F7A8 /* AutoStartTests.swift */; };
+		989F7A2063951D7F0AE0F5F5 /* String+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 967F4B2424169BC800F18D3C /* String+Extension.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -620,6 +621,7 @@
 				2CEFC27766BCEA39CD11079F /* MenuBarEngineTests.swift in Sources */,
 				B12AD86D3E924502860225CC /* ExpandCollapseActionTests.swift in Sources */,
 				9B1765C0B5634CFABD06A916 /* AutoStartTests.swift in Sources */,
+				989F7A2063951D7F0AE0F5F5 /* String+Extension.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
