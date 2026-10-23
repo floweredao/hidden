@@ -160,6 +160,52 @@ final class MenuBarLayoutResolverTests: XCTestCase {
         XCTAssertEqual(layout.bundles(in: [.visible]), ["a", "b"])
         XCTAssertEqual(layout.bundles(in: [.visible, .hidden]), ["a", "b", "c"])
     }
+
+    // On a boundary an item is not past it: centred on the separator it is
+    // hidden, centred on the always-hidden separator it is still only hidden.
+    func testItemsCentredOnASeparatorAreHidden() {
+        XCTAssertEqual(MenuBarLayoutResolver.section(of: CGRect(x: 1300, y: 0, width: 20, height: 24),
+                                                     separatorFrame: separator, alwaysHiddenSeparatorFrame: alwaysHiddenSeparator,
+                                                     isLTR: true), .hidden)
+        XCTAssertEqual(MenuBarLayoutResolver.section(of: CGRect(x: 1000, y: 0, width: 20, height: 24),
+                                                     separatorFrame: separator, alwaysHiddenSeparatorFrame: alwaysHiddenSeparator,
+                                                     isLTR: true), .hidden)
+    }
+
+    func testRTLWithoutAlwaysHiddenSeparatorEverythingRightIsHidden() {
+        let rtlSeparator = CGRect(x: 300, y: 0, width: 20, height: 24)
+        let layout = MenuBarLayoutResolver.resolve(
+            inventory: [item("com.left", x: 200), item("com.right", x: 450), item("com.far", x: 1400)],
+            separatorFrame: rtlSeparator, alwaysHiddenSeparatorFrame: nil,
+            isLTR: false, excludingBundle: nil)
+        XCTAssertEqual(layout.sections, ["com.left": .visible, "com.right": .hidden, "com.far": .hidden])
+    }
+
+    func testEmptyInventoryGivesNoSections() {
+        let layout = MenuBarLayoutResolver.resolve(
+            inventory: [], separatorFrame: separator, alwaysHiddenSeparatorFrame: alwaysHiddenSeparator,
+            isLTR: true, excludingBundle: nil)
+        XCTAssertEqual(layout.sections, [:])
+        XCTAssertEqual(layout.bundles(in: [.visible, .hidden, .alwaysHidden]), [])
+    }
+
+    // "Most visible wins" relies on this order.
+    func testSectionsAreOrderedFromVisibleToAlwaysHidden() {
+        XCTAssertLessThan(MenuBarSection.visible, MenuBarSection.hidden)
+        XCTAssertLessThan(MenuBarSection.hidden, MenuBarSection.alwaysHidden)
+    }
+
+    func testNoSectionsWantedGivesNoBundles() {
+        let layout = MenuBarLayout(sections: ["a": .visible, "b": .hidden])
+        XCTAssertEqual(layout.bundles(in: []), [])
+    }
+
+    func testOverridesLeaveTheLayoutAloneWhenEmptyAndKeepAlwaysHiddenWhenEnabled() {
+        let layout = MenuBarLayout(sections: ["com.a": .visible])
+        XCTAssertEqual(layout.applying(overrides: [:], alwaysHiddenEnabled: false), layout)
+        XCTAssertEqual(layout.applying(overrides: ["com.a": .alwaysHidden], alwaysHiddenEnabled: true).sections,
+                       ["com.a": .alwaysHidden])
+    }
 }
 
 // MARK: - Native engine
@@ -449,6 +495,129 @@ final class NativeVisibilityEngineTests: XCTestCase {
         XCTAssertEqual(engine.state, .collapsed)
         XCTAssertFalse(collapsed.isInvalidated)
     }
+
+    func testUnreadableArrowReportsUnavailableWithoutHiding() {
+        let engine = NativeVisibilityEngine(items: items!, inventory: inventory, visibility: visibility,
+                                            ownBundleIdentifier: "com.dwarvesv.minimalbar",
+                                            itemFrame: { _ in nil },
+                                            isLTR: { true },
+                                            runningBundleIdentifiers: { [] },
+                                            launchNotifications: NotificationCenter())
+        var result: CollapseResult?
+        engine.collapse { result = $0 }
+
+        XCTAssertEqual(result, .unavailable)
+        XCTAssertEqual(engine.state, .expanded)
+        XCTAssertEqual(engine.unavailableReason, .boundaryUnreadable)
+        XCTAssertEqual(inventory.snapshots, 0)
+        XCTAssertTrue(visibility.requests.isEmpty)
+    }
+
+    func testCollapseWhileCollapsedAnswersAtOnce() {
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        visibility.succeed(0)
+
+        var results: [CollapseResult] = []
+        engine.collapse { results.append($0) }
+        XCTAssertEqual(results, [.collapsed])
+        XCTAssertEqual(visibility.requests.count, 1)
+    }
+
+    func testCollapseWhileActivatingLeavesTheAnswerToTheFirstRequest() {
+        let engine = makeEngine()
+        var results: [CollapseResult] = []
+        engine.collapse { results.append($0) }
+        engine.collapse { results.append($0) }
+        XCTAssertEqual(visibility.requests.count, 1)
+        XCTAssertEqual(results, [])
+
+        visibility.succeed(0)
+        XCTAssertEqual(results, [.collapsed])
+    }
+
+    func testCollapseWorksOnceTheAPIBecomesAvailable() {
+        visibility.isAvailable = false
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        XCTAssertEqual(engine.state, .unavailable)
+
+        visibility.isAvailable = true
+        engine.collapse { _ in }
+        visibility.succeed(0)
+        XCTAssertEqual(engine.state, .collapsed)
+        XCTAssertNil(engine.unavailableReason)
+    }
+
+    func testExpandAfterUnavailableIsExpanded() {
+        visibility.isAvailable = false
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        engine.expand()
+        XCTAssertEqual(engine.state, .expanded)
+        XCTAssertTrue(visibility.requests.isEmpty)
+    }
+
+    func testWithoutAnOwnBundleOnlyTheVisibleAppsAreAllowed() {
+        let items = self.items!
+        let engine = NativeVisibilityEngine(items: items, inventory: inventory, visibility: visibility,
+                                            ownBundleIdentifier: nil,
+                                            itemFrame: { $0 === items.toggleItem ? separator : alwaysHiddenSeparator },
+                                            isLTR: { true },
+                                            runningBundleIdentifiers: { [] },
+                                            launchNotifications: NotificationCenter())
+        engine.collapse { _ in }
+        XCTAssertEqual(visibility.requests.first?.bundles, ["com.visible"])
+    }
+
+    func testReapplyWhileActivatingLeavesItToTheCollapse() {
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        var reapplied: Bool?
+        engine.reapplySections { reapplied = $0 }
+        XCTAssertEqual(reapplied, true)
+        XCTAssertEqual(visibility.requests.count, 1)
+    }
+
+    func testDisplayChangeWhileCollapsedKeepsTheSectionsForReapplying() {
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        visibility.succeed(0)
+        engine.invalidateLayout()
+
+        var reapplied: Bool?
+        engine.reapplySections { reapplied = $0 }
+        XCTAssertEqual(visibility.requests.count, 2)
+        XCTAssertEqual(visibility.requests[1].bundles, ["com.dwarvesv.minimalbar", "com.visible"])
+        visibility.succeed(1)
+        XCTAssertEqual(reapplied, true)
+    }
+
+    func testReadSectionsWhileActivatingUsesTheLastRead() {
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        let snapshots = inventory.snapshots
+
+        var read: MenuBarLayout?
+        engine.readSections { read = $0 }
+        XCTAssertEqual(inventory.snapshots, snapshots)
+        XCTAssertEqual(read?.sections, ["com.always": .hidden, "com.hidden": .hidden, "com.visible": .visible])
+    }
+
+    func testReadSectionsWithoutAccessibilityReadsNothing() {
+        inventory.isAuthorized = false
+        let engine = makeEngine()
+        var read: MenuBarLayout? = MenuBarLayout(sections: [:])
+        engine.readSections { read = $0 }
+        XCTAssertNil(read)
+        XCTAssertEqual(inventory.snapshots, 0)
+    }
+
+    func testAnyArrangementIsValidAndSectionsCanBeAssigned() {
+        let engine = makeEngine()
+        XCTAssertTrue(engine.isArrangementValid)
+        XCTAssertTrue(engine.supportsSectionAssignment)
+    }
 }
 
 // MARK: - Legacy engine
@@ -487,6 +656,64 @@ final class LegacyLengthEngineTests: XCTestCase {
         engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
         engine.invalidateLayout()
         XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
+    }
+
+    func testAlwaysHiddenItemHasNoWidthWhileTheSectionIsOff() {
+        let items = FakeItems()
+        let engine = LegacyLengthEngine(items: items)
+        engine.updateAlwaysHiddenSection(enabled: false, separatorHidden: true)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+        engine.updateAlwaysHiddenSection(enabled: false, separatorHidden: false)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
+    }
+
+    // macOS caps NSStatusItem.length at 10,000 pt (PR #354).
+    func testCollapseLengthStaysWithinTheStatusItemLimits() {
+        let items = FakeItems()
+        let engine = LegacyLengthEngine(items: items)
+        engine.collapse { _ in }
+        XCTAssertGreaterThanOrEqual(items.separatorItem.length, 500)
+        XCTAssertLessThanOrEqual(items.separatorItem.length, 10_000)
+    }
+
+    // The state is read from the live length, so it survives the length being
+    // changed by something other than collapse and expand.
+    func testStateFollowsTheLiveSeparatorLength() {
+        let items = FakeItems()
+        let engine = LegacyLengthEngine(items: items)
+        items.separatorItem.length = 600
+        XCTAssertEqual(engine.state, .collapsed)
+        items.separatorItem.length = 20
+        XCTAssertEqual(engine.state, .expanded)
+    }
+
+    func testDisplayChangeLeavesAnExpandedSeparatorAlone() {
+        let items = FakeItems()
+        let engine = LegacyLengthEngine(items: items)
+        engine.expand()
+        engine.invalidateLayout()
+        XCTAssertEqual(items.separatorItem.length, 20)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
+    }
+
+    func testSectionAssignmentIsNotSupported() {
+        let engine = LegacyLengthEngine(items: FakeItems())
+        XCTAssertFalse(engine.supportsSectionAssignment)
+        XCTAssertNil(engine.unavailableReason)
+
+        var read: MenuBarLayout? = MenuBarLayout(sections: [:])
+        engine.readSections { read = $0 }
+        XCTAssertNil(read)
+
+        var reapplied: Bool?
+        engine.reapplySections { reapplied = $0 }
+        XCTAssertEqual(reapplied, true)
+    }
+
+    func testNothingIsOnTheHiddenSideOfAnItemThatIsNotOnScreen() {
+        XCTAssertFalse(MenuBarOrder.isItem(nil, onHiddenSideOf: nil))
     }
 }
 
@@ -654,6 +881,47 @@ final class OverflowCollapseGeometryTests: XCTestCase {
     func testNoDisplayFallsBack() {
         XCTAssertEqual(OverflowCollapseGeometry.plan(displays: []), .init(unitLength: 200, activeSpacers: 0))
     }
+
+    func testStatusWidthWiderThanTheDisplayIsClamped() {
+        let display = OverflowCollapseGeometry.Display(width: 1440, statusWidth: 2000)
+        XCTAssertEqual(display.statusWidth, 1440)
+        XCTAssertFalse(display.hasNotch)
+    }
+
+    func testLimitIsHalfAPlainDisplayAndThreeQuartersRightOfTheNotch() {
+        XCTAssertEqual(OverflowCollapseGeometry.limit(of: .init(width: 1920)), 960)
+        XCTAssertEqual(OverflowCollapseGeometry.limit(of: .init(width: 1512, statusWidth: 600)), 450)
+    }
+
+    // 663.5 x 0.75 = 497.625, less the margin 433.625, rounded down; 663.5 / 433
+    // needs two lengths, the separator and one spacer.
+    func testNotchedDisplayPlan() {
+        XCTAssertEqual(OverflowCollapseGeometry.plan(displays: [.init(width: 1512, statusWidth: 663.5)]),
+                       .init(unitLength: 433, activeSpacers: 1))
+    }
+
+    // A notched laptop beside a 2560 pt display: the notch sets the length, the
+    // wide display the count (2560 / 433 rounds up to 6 lengths).
+    func testNotchedLaptopWithAWideExternalDisplay() {
+        let plan = OverflowCollapseGeometry.plan(displays: [.init(width: 1512, statusWidth: 663.5), .init(width: 2560)])
+        XCTAssertEqual(plan, .init(unitLength: 433, activeSpacers: 5))
+    }
+
+    func testExactMultipleNeedsNoExtraSpacer() {
+        XCTAssertEqual(OverflowCollapseGeometry.plan(displays: [.init(width: 256)]),
+                       .init(unitLength: 64, activeSpacers: 3))
+    }
+
+    func testTinyDisplayKeepsAPositiveLengthAndCapsTheSpacers() {
+        XCTAssertEqual(OverflowCollapseGeometry.plan(displays: [.init(width: 100)]),
+                       .init(unitLength: 1, activeSpacers: OverflowCollapseGeometry.spacerCount))
+    }
+
+    // Saved positions are keyed by these names; renaming them loses the spacers' slots.
+    func testSpacerNamesAreStable() {
+        XCTAssertEqual(OverflowCollapseEngine.spacerAutosaveName(0), "hiddenbar_overflow_spacer_0")
+        XCTAssertEqual(OverflowCollapseEngine.spacerAutosaveName(15), "hiddenbar_overflow_spacer_15")
+    }
 }
 
 final class OverflowCollapseEngineTests: XCTestCase {
@@ -721,5 +989,42 @@ final class OverflowCollapseEngineTests: XCTestCase {
         engine.collapse { _ in }
         XCTAssertEqual(items.separatorItem.length, 896)
         XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
+    }
+
+    private func makeEngine(_ items: FakeItems, displays: @escaping () -> [OverflowCollapseGeometry.Display]) -> OverflowCollapseEngine {
+        return OverflowCollapseEngine(items: items,
+                                      displays: displays,
+                                      makeSpacer: { [unowned self] name in
+                                          let spacer = self.bar.statusItem(withLength: 0)
+                                          self.spacers[name] = spacer
+                                          return spacer
+                                      })
+    }
+
+    func testDisplayChangeWhileCollapsedResizesToTheNewLimit() {
+        var displays: [OverflowCollapseGeometry.Display] = [.init(width: 1920)]
+        let items = FakeItems()
+        let engine = makeEngine(items, displays: { displays })
+        engine.collapse { _ in }
+        XCTAssertEqual(items.separatorItem.length, 896)
+
+        displays = [.init(width: 1280)]
+        engine.invalidateLayout()
+        XCTAssertEqual(items.separatorItem.length, 576)
+        XCTAssertEqual(spacerLengths.filter { $0 == 576 }.count, 2)
+        XCTAssertEqual(engine.state, .collapsed)
+    }
+
+    func testWithTheSectionOffNothingIsInflatedWhileExpanded() {
+        let items = FakeItems()
+        let engine = makeEngine(items)
+        engine.updateAlwaysHiddenSection(enabled: false, separatorHidden: true)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+        XCTAssertEqual(items.separatorItem.length, 20)
+        XCTAssertEqual(Set(spacerLengths), [0])
+
+        engine.collapse { _ in }
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+        XCTAssertEqual(items.separatorItem.length, 896)
     }
 }
