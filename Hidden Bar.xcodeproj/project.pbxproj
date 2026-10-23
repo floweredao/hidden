@@ -66,6 +66,15 @@
 		83E0D6A1FA184019932AECA5 /* AutoStart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A329E615845473D946DA3C2 /* AutoStart.swift */; };
 		160B7980C8A44829A864BBA6 /* AutoStart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A329E615845473D946DA3C2 /* AutoStart.swift */; };
 		9B1765C0B5634CFABD06A916 /* AutoStartTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F013C3E5499B4EA7B816F7A8 /* AutoStartTests.swift */; };
+		989F7A2063951D7F0AE0F5F5 /* String+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 967F4B2424169BC800F18D3C /* String+Extension.swift */; };
+		3E8D1F6A0B2C4D7E9F1A2B3C /* Assets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00117C4326600671005E517C /* Assets.swift */; };
+		5C2B7A9E1D3F4A6B8C0D1E2F /* Bundle+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08C20FDF23AB44E60035D978 /* Bundle+Extension.swift */; };
+		7A4E2C1B9D8F3E5A6B0C1D2E /* UserDefault+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A5F86323AA09F300981CA5 /* UserDefault+Extension.swift */; };
+		9B6D3E2F1A0C4B7D8E5F6A1B /* Notification.Name+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00137CDE24A63DB1004AC855 /* Notification.Name+Extension.swift */; };
+		1D8F4A3B2C6E5D9F0A7B8C2D /* StackView+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55F3F11C2608925A0054B881 /* StackView+Extension.swift */; };
+		2E9A5B4C3D7F6E0A1B8C9D3E /* NSView+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92C97B8C220058740007559C /* NSView+Extension.swift */; };
+		4F0B6C5D4E8A7F1B2C9D0E4F /* AssetsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1C7D6E5F9B8A2C3D0E1F5A /* AssetsTests.swift */; };
+		8B2D8E7F6A0C9B3D4E1F2A6B /* ExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E9F8A7B1D0C4E5F2A3B7C8 /* ExtensionTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -153,6 +162,8 @@
 		764544B7EDBB41A18087ED6F /* ExpandCollapseActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpandCollapseActionTests.swift; sourceTree = "<group>"; };
 		9A329E615845473D946DA3C2 /* AutoStart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoStart.swift; sourceTree = "<group>"; };
 		F013C3E5499B4EA7B816F7A8 /* AutoStartTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoStartTests.swift; sourceTree = "<group>"; };
+		6A1C7D6E5F9B8A2C3D0E1F5A /* AssetsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetsTests.swift; sourceTree = "<group>"; };
+		C3E9F8A7B1D0C4E5F2A3B7C8 /* ExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -386,6 +397,8 @@
 				C57343F39835408A99E25A6E /* MenuBarEngineTests.swift */,
 				764544B7EDBB41A18087ED6F /* ExpandCollapseActionTests.swift */,
 				F013C3E5499B4EA7B816F7A8 /* AutoStartTests.swift */,
+				6A1C7D6E5F9B8A2C3D0E1F5A /* AssetsTests.swift */,
+				C3E9F8A7B1D0C4E5F2A3B7C8 /* ExtensionTests.swift */,
 			);
 			path = HiddenBarTests;
 			sourceTree = "<group>";
@@ -620,6 +633,15 @@
 				2CEFC27766BCEA39CD11079F /* MenuBarEngineTests.swift in Sources */,
 				B12AD86D3E924502860225CC /* ExpandCollapseActionTests.swift in Sources */,
 				9B1765C0B5634CFABD06A916 /* AutoStartTests.swift in Sources */,
+				989F7A2063951D7F0AE0F5F5 /* String+Extension.swift in Sources */,
+				3E8D1F6A0B2C4D7E9F1A2B3C /* Assets.swift in Sources */,
+				5C2B7A9E1D3F4A6B8C0D1E2F /* Bundle+Extension.swift in Sources */,
+				7A4E2C1B9D8F3E5A6B0C1D2E /* UserDefault+Extension.swift in Sources */,
+				9B6D3E2F1A0C4B7D8E5F6A1B /* Notification.Name+Extension.swift in Sources */,
+				1D8F4A3B2C6E5D9F0A7B8C2D /* StackView+Extension.swift in Sources */,
+				2E9A5B4C3D7F6E0A1B8C9D3E /* NSView+Extension.swift in Sources */,
+				4F0B6C5D4E8A7F1B2C9D0E4F /* AssetsTests.swift in Sources */,
+				8B2D8E7F6A0C9B3D4E1F2A6B /* ExtensionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
