@@ -23,5 +23,6 @@ extension UserDefaults {
         static let sectionOverrides = "sectionOverrides"
         static let showsSystemIndicatorsWhenExpanded = "showsSystemIndicatorsWhenExpanded"
         static let hidesIntoSystemOverflow = "hidesIntoSystemOverflow"
+        static let hidesWithMenuBarSettings = "hidesWithMenuBarSettings"
     }
 }

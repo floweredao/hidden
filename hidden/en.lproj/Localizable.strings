@@ -76,3 +76,6 @@ Steps to view always hidden icons:
 /* macOS 27 indicators while expanded */
 "Show Focus and mic/camera indicators when expanded" = "Show Focus and mic/camera indicators when expanded";
 "macOS hides these while any icon is hidden. When this is on, the always-hidden section also shows while expanded." = "macOS hides these while any icon is hidden. When this is on, the always-hidden section also shows while expanded.";
+
+"To hide icons while keeping the Focus and microphone indicators, Hidden Bar changes the \"Allow in the Menu Bar\" switches. Select this file to allow it." = "To hide icons while keeping the Focus and microphone indicators, Hidden Bar changes the \"Allow in the Menu Bar\" switches. Select this file to allow it.";
+"Allow" = "Allow";
