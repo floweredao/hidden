@@ -18,7 +18,20 @@ Everything Hidden Bar can do, including the parts with no UI.
 
 ### macOS 27, direct download build
 
-The direct (non-App Store) build hides icons natively on macOS 27, and the
+By default, macOS 27 collapses into macOS's own « menu (every build). The
+`|` separator is the boundary, as on macOS 26: ⌘-drag the icons to hide to its
+left, and the always-hidden `|` further left still. Collapsing makes `|` just
+shorter than the longest item macOS 27 accepts, so the bar runs out of room and
+macOS moves every icon left of it into the « menu at the left of the bar, one
+click away. Nothing is restricted, so the Focus icon, the mic/camera capsule,
+Now Playing and Live Activities stay. No Accessibility permission is needed.
+
+To hide icons completely instead (assessment mode, described below, which
+takes those indicators with it), run
+`defaults write com.dwarvesv.minimalbar hidesIntoSystemOverflow -bool NO` and
+relaunch.
+
+With that off, the direct (non-App Store) build hides icons natively on macOS 27, and the
 **arrow itself is the boundary**: there is no `|` separator. ⌘-drag icons to
 the arrow's left to hide them when collapsed, to its right to keep them
 visible. The always-hidden separator still appears (while expanded) when that

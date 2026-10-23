@@ -22,5 +22,6 @@ extension UserDefaults {
         static let notchOverflowEnabled = "notchOverflowEnabled"
         static let sectionOverrides = "sectionOverrides"
         static let showsSystemIndicatorsWhenExpanded = "showsSystemIndicatorsWhenExpanded"
+        static let hidesIntoSystemOverflow = "hidesIntoSystemOverflow"
     }
 }
