@@ -59,11 +59,11 @@ struct GlobalKeybindPreferences: Codable, CustomStringConvertible {
         if self.option {
             stringBuilder += "⌥"
         }
-        if self.command {
-            stringBuilder += "⌘"
-        }
         if self.shift {
             stringBuilder += "⇧"
+        }
+        if self.command {
+            stringBuilder += "⌘"
         }
         if self.capsLock {
             stringBuilder += "⇪"
