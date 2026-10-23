@@ -68,6 +68,9 @@
 		9B1765C0B5634CFABD06A916 /* AutoStartTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F013C3E5499B4EA7B816F7A8 /* AutoStartTests.swift */; };
 		989F7A2063951D7F0AE0F5F5 /* String+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 967F4B2424169BC800F18D3C /* String+Extension.swift */; };
 		85D96EAF11EB49907059CB89 /* StringExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0DF1972A77B7726D58A7216 /* StringExtensionTests.swift */; };
+		AA753CAA98A6C19DF359341B /* GlobalKeybindingPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0842CDFA23A9FDD000D14BD4 /* GlobalKeybindingPreferences.swift */; };
+		4FDE1B56B5EC0B562EB3E2BF /* SelectedSecond.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A5F85B23AA013100981CA5 /* SelectedSecond.swift */; };
+		436BE8D64DA21CCAD6364090 /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0563ACFDAEE8C4399A65F77E /* ModelTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -156,6 +159,7 @@
 		9A329E615845473D946DA3C2 /* AutoStart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoStart.swift; sourceTree = "<group>"; };
 		F013C3E5499B4EA7B816F7A8 /* AutoStartTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoStartTests.swift; sourceTree = "<group>"; };
 		B0DF1972A77B7726D58A7216 /* StringExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringExtensionTests.swift; sourceTree = "<group>"; };
+		0563ACFDAEE8C4399A65F77E /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -390,6 +394,7 @@
 				764544B7EDBB41A18087ED6F /* ExpandCollapseActionTests.swift */,
 				F013C3E5499B4EA7B816F7A8 /* AutoStartTests.swift */,
 				B0DF1972A77B7726D58A7216 /* StringExtensionTests.swift */,
+				0563ACFDAEE8C4399A65F77E /* ModelTests.swift */,
 			);
 			path = HiddenBarTests;
 			sourceTree = "<group>";
@@ -624,6 +629,9 @@
 				2CEFC27766BCEA39CD11079F /* MenuBarEngineTests.swift in Sources */,
 				B12AD86D3E924502860225CC /* ExpandCollapseActionTests.swift in Sources */,
 				9B1765C0B5634CFABD06A916 /* AutoStartTests.swift in Sources */,
+				AA753CAA98A6C19DF359341B /* GlobalKeybindingPreferences.swift in Sources */,
+				4FDE1B56B5EC0B562EB3E2BF /* SelectedSecond.swift in Sources */,
+				436BE8D64DA21CCAD6364090 /* ModelTests.swift in Sources */,
 				989F7A2063951D7F0AE0F5F5 /* String+Extension.swift in Sources */,
 				85D96EAF11EB49907059CB89 /* StringExtensionTests.swift in Sources */,
 			);
