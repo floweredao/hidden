@@ -18,7 +18,17 @@ Everything Hidden Bar can do, including the parts with no UI.
 
 ### macOS 27, direct download build
 
-By default, macOS 27 collapses into macOS's own « menu (every build). The
+**Direct build, default:** collapsing turns off each hidden app's "Allow in
+the Menu Bar" switch (System Settings › Menu Bar) and restarts MenuBarAgent,
+which reads the switches only at start; expanding turns them back on. Icons are
+hidden completely, and the Focus icon, the mic/camera capsule, Now Playing and
+Live Activities stay. The arrow is the boundary. The bar redraws for about a
+second on each toggle. The first collapse shows an Open panel: select
+`group.com.apple.controlcenter.plist` and click Allow (macOS protects other
+apps' data). Switch it off with
+`defaults write com.dwarvesv.minimalbar hidesWithMenuBarSettings -bool NO`.
+
+With that off, macOS 27 collapses into macOS's own « menu (every build). The
 `|` separator is the boundary, as on macOS 26: ⌘-drag the icons to hide to its
 left, and the always-hidden `|` further left still. Collapsing makes `|` just
 shorter than the longest item macOS 27 accepts, so the bar runs out of room and
