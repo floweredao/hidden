@@ -37,6 +37,13 @@ final class GlobalKeybindPreferencesTests: XCTestCase {
         XCTAssertEqual(keybind(function: true, keyCode: 51).description, "Fn⌫")
     }
 
+    // macOS lists modifiers as Control, Option, Shift, Command, the order its
+    // own menus show; the label had Command before Shift.
+    func testModifiersFollowTheSystemOrder() {
+        XCTAssertEqual(keybind(control: true, command: true, shift: true, option: true, keyCode: 49).description, "⌃⌥⇧⌘⎵")
+        XCTAssertEqual(keybind(command: true, shift: true, keyCode: 36).description, "⇧⌘⏎")
+    }
+
     func testCapsLockFollowsTheOtherModifiers() {
         XCTAssertEqual(keybind(control: true, capsLock: true, keyCode: 36).description, "⌃⇪⏎")
     }
