@@ -121,4 +121,48 @@ final class ExpandCollapseActionTests: XCTestCase {
                            [.mouseInMenuBar, .preferencesEditing])
         }
     }
+
+    // A key press on the focused arrow is not a mouse event and must toggle,
+    // not flip the always-hidden separators.
+    func testKeyboardActivationToggles() {
+        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .keyDown, modifiers: [], alwaysHiddenSectionEnabled: true), .toggle)
+        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .keyUp, modifiers: [], alwaysHiddenSectionEnabled: false), .toggle)
+    }
+
+    // With "Automatically hide and show the menu bar" the visible frame reaches
+    // the top of the screen, so the band must come from the bar's thickness.
+    func testMenuBarBandUsesThicknessWhenBarAutoHides() {
+        let frame = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        XCTAssertEqual(MenuBarBand.minY(frame: frame, visibleFrame: frame, thickness: 24), 776)
+    }
+
+    func testMenuBarBandUsesVisibleFrameWhenBarIsShown() {
+        let frame = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let visible = CGRect(x: 0, y: 0, width: 1000, height: 776)
+        XCTAssertEqual(MenuBarBand.minY(frame: frame, visibleFrame: visible, thickness: 24), 776)
+    }
+
+    func testNestedCollapseIsRefusedUntilOuterOneFinishes() {
+        var gate = CollapseGate()
+        XCTAssertTrue(gate.begin())
+        XCTAssertFalse(gate.begin())
+        XCTAssertTrue(gate.isCollapsing)
+        gate.end()
+        XCTAssertFalse(gate.isCollapsing)
+        XCTAssertTrue(gate.begin())
+    }
+
+    // A background re-activation that failed leaves the engine expanded; the
+    // arrow must follow the engine instead of keeping the collapsed glyph.
+    func testGlyphFollowsEngineStateAfterBackgroundChange() {
+        XCTAssertTrue(EngineStatePresentation.showsCollapsedGlyph(state: .collapsed, problem: nil))
+        XCTAssertFalse(EngineStatePresentation.showsCollapsedGlyph(state: .expanded, problem: .activationFailed))
+        XCTAssertTrue(EngineStatePresentation.showsCollapsedGlyph(state: .expanded, problem: .restoreFailed))
+        XCTAssertFalse(EngineStatePresentation.showsCollapsedGlyph(state: .expanded, problem: nil))
+    }
+
+    func testFailedLaunchRecoveryBlocksInitialCollapse() {
+        XCTAssertFalse(InitialCollapsePolicy.shouldCollapse(launchRecovered: false))
+        XCTAssertTrue(InitialCollapsePolicy.shouldCollapse(launchRecovered: true))
+    }
 }

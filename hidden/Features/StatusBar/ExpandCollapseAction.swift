@@ -43,9 +43,57 @@ enum ExpandCollapseActionResolver {
             return modifiers.contains(.control) ? secondaryClick : .toggle
         case .rightMouseUp:
             return secondaryClick
-        default:
+        case .otherMouseUp:
             return .toggleSeparators
+        default:
+            // A key press on the focused arrow (keyboard or VoiceOver
+            // navigation) is a plain activation, so it toggles.
+            return .toggle
         }
+    }
+}
+
+// Pure rules the controller relies on, kept here so they are testable without
+// a live status item.
+enum MenuBarBand {
+    // The visible frame stops below the bar, unless the bar auto-hides: then it
+    // reaches the top of the screen and the band must come from the bar's height.
+    static func minY(frame: CGRect, visibleFrame: CGRect, thickness: CGFloat) -> CGFloat {
+        if visibleFrame.maxY >= frame.maxY { return frame.maxY - thickness }
+        return visibleFrame.maxY
+    }
+}
+
+// Set while a collapse is outstanding. A second collapse that starts meanwhile
+// (the auto-collapse timer or the hotkey firing under the access prompt) would
+// otherwise consume the first one's completion.
+struct CollapseGate {
+    private(set) var isCollapsing = false
+
+    mutating func begin() -> Bool {
+        if isCollapsing { return false }
+        isCollapsing = true
+        return true
+    }
+
+    mutating func end() {
+        isCollapsing = false
+    }
+}
+
+enum EngineStatePresentation {
+    // The arrow shows the collapsed glyph while icons are hidden, and also while
+    // a failed restore leaves some hidden so a press retries the expansion.
+    static func showsCollapsedGlyph(state: MenuBarEngineState, problem: HidingUnavailableReason?) -> Bool {
+        return state == .collapsed || problem == .restoreFailed
+    }
+}
+
+enum InitialCollapsePolicy {
+    // Collapsing on top of a recovery that failed would hide icons again before
+    // the owner can see the restore problem.
+    static func shouldCollapse(launchRecovered: Bool) -> Bool {
+        return launchRecovered
     }
 }
 
