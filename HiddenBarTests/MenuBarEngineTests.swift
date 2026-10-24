@@ -52,9 +52,10 @@ private final class FakeAssertion: NativeVisibilityAssertion {
         self.allowed = allowed
     }
 
-    func invalidate() {
+    @discardableResult func invalidate() -> Bool {
         isInvalidated = true
         onInvalidate?()
+        return true
     }
 }
 
@@ -727,6 +728,13 @@ final class OverflowCollapseEngineTests: XCTestCase {
 // MARK: - Allow in the Menu Bar entries
 
 final class AllowListTests: XCTestCase {
+    private func apply(hiding hidden: Set<String>, keeping kept: Set<String>, to entries: NSMutableArray,
+                       saved: inout AllowList.Journal) -> Bool {
+        var overrides = Set<String>()
+        return AllowList.apply(hiding: hidden, keeping: kept, to: entries, journal: &saved,
+                               userOverrides: &overrides, executableURL: { _ in nil }).changed
+    }
+
     private func entry(_ key: String, locations: [NSDictionary], allowed: Bool = true) -> [Any] {
         return [["bundle": ["_0": key]] as NSDictionary,
                 NSMutableDictionary(dictionary: ["location": ["bundle": ["_0": key]],
@@ -750,13 +758,13 @@ final class AllowListTests: XCTestCase {
 
     func testHidesMatchingEntriesAndRestoresThem() {
         let entries = NSMutableArray(array: entry("a.app", locations: [bundle("a.app")]) + entry("b.app", locations: [bundle("b.app")]))
-        var saved: [String: Bool] = [:]
-        XCTAssertTrue(AllowList.apply(hiding: ["a.app"], keeping: [], to: entries, saved: &saved))
+        var saved: AllowList.Journal = [:]
+        XCTAssertTrue(apply(hiding: ["a.app"], keeping: [], to: entries, saved: &saved))
         XCTAssertEqual(value(entries, "a.app")["isAllowed"] as? Bool, false)
         XCTAssertEqual(value(entries, "b.app")["isAllowed"] as? Bool, true)
-        XCTAssertEqual(saved, ["a.app": true])
+        XCTAssertEqual(saved, [AllowList.identity(bundle("a.app"))!: AllowList.Record(original: true, written: false)])
 
-        XCTAssertTrue(AllowList.apply(hiding: [], keeping: [], to: entries, saved: &saved))
+        XCTAssertTrue(apply(hiding: [], keeping: [], to: entries, saved: &saved))
         XCTAssertEqual(value(entries, "a.app")["isAllowed"] as? Bool, true)
         XCTAssertEqual(saved, [:])
     }
@@ -764,8 +772,8 @@ final class AllowListTests: XCTestCase {
     func testEntryWithOnlyAnOldBuildPathGetsTheBundleIdAdded() {
         let old = path("file:///Users/x/.work/build/S.app/Contents/MacOS/S")
         let entries = NSMutableArray(array: entry("local.s.app", locations: [old]))
-        var saved: [String: Bool] = [:]
-        XCTAssertTrue(AllowList.apply(hiding: ["local.s.app"], keeping: [], to: entries, saved: &saved))
+        var saved: AllowList.Journal = [:]
+        XCTAssertTrue(apply(hiding: ["local.s.app"], keeping: [], to: entries, saved: &saved))
         let v = value(entries, "local.s.app")
         XCTAssertEqual(v["isAllowed"] as? Bool, false)
         XCTAssertEqual(AllowList.bundles(in: v["menuItemLocations"] as? NSArray), ["local.s.app"])
@@ -774,8 +782,8 @@ final class AllowListTests: XCTestCase {
 
     func testHelperIsMatchedThroughItsParentsEntry() {
         let entries = NSMutableArray(array: entry("com.parent", locations: [bundle("team.helper"), bundle("com.parent")]))
-        var saved: [String: Bool] = [:]
-        _ = AllowList.apply(hiding: ["team.helper"], keeping: [], to: entries, saved: &saved)
+        var saved: AllowList.Journal = [:]
+        _ = apply(hiding: ["team.helper"], keeping: [], to: entries, saved: &saved)
         XCTAssertEqual(value(entries, "com.parent")["isAllowed"] as? Bool, false)
         XCTAssertEqual((value(entries, "com.parent")["menuItemLocations"] as? NSArray)?.count, 2, "nothing added")
     }
@@ -784,23 +792,399 @@ final class AllowListTests: XCTestCase {
         // iStat Menus: the main app runs without an icon (so it is not kept), its
         // helper draws the icon and sits right of the arrow.
         let entries = NSMutableArray(array: entry("com.parent", locations: [bundle("team.helper"), bundle("com.parent")]))
-        var saved: [String: Bool] = [:]
-        XCTAssertFalse(AllowList.apply(hiding: ["com.parent"], keeping: ["team.helper"], to: entries, saved: &saved))
+        var saved: AllowList.Journal = [:]
+        XCTAssertFalse(apply(hiding: ["com.parent"], keeping: ["team.helper"], to: entries, saved: &saved))
         XCTAssertEqual(value(entries, "com.parent")["isAllowed"] as? Bool, true)
     }
 
     func testAUserSwitchedOffAppStaysOffAfterRestore() {
         let entries = NSMutableArray(array: entry("a.app", locations: [bundle("a.app")], allowed: false))
-        var saved: [String: Bool] = [:]
-        _ = AllowList.apply(hiding: ["a.app"], keeping: [], to: entries, saved: &saved)
-        XCTAssertEqual(saved, ["a.app": false])
-        _ = AllowList.apply(hiding: [], keeping: [], to: entries, saved: &saved)
+        var saved: AllowList.Journal = [:]
+        _ = apply(hiding: ["a.app"], keeping: [], to: entries, saved: &saved)
+        XCTAssertEqual(saved, [AllowList.identity(bundle("a.app"))!: AllowList.Record(original: false, written: false)])
+        _ = apply(hiding: [], keeping: [], to: entries, saved: &saved)
         XCTAssertEqual(value(entries, "a.app")["isAllowed"] as? Bool, false)
     }
 
     func testNothingToChangeReportsNoChange() {
         let entries = NSMutableArray(array: entry("a.app", locations: [bundle("a.app")]))
-        var saved: [String: Bool] = [:]
-        XCTAssertFalse(AllowList.apply(hiding: ["not.running"], keeping: [], to: entries, saved: &saved))
+        var saved: AllowList.Journal = [:]
+        XCTAssertFalse(apply(hiding: ["not.running"], keeping: [], to: entries, saved: &saved))
+    }
+}
+
+final class MenuBarAllowListBridgeTests: XCTestCase {
+    private final class Store {
+        var entries: NSMutableArray
+        var reads = 0
+        var writes = 0
+        var failWrites = false
+        var ignoreWrites = false
+        var beforeRead: ((Int) -> Void)?
+        var beforeWrite: (() -> Void)?
+
+        init(_ entries: NSMutableArray) { self.entries = entries }
+
+        func read() throws -> NSMutableArray {
+            reads += 1
+            beforeRead?(reads)
+            return try copy(entries)
+        }
+
+        func write(_ value: NSMutableArray) throws {
+            writes += 1
+            beforeWrite?()
+            if !ignoreWrites { entries = try copy(value) }
+            // Synchronization can fail after CFPreferencesSetValue has applied.
+            if failWrites { throw NSError(domain: "TestStore", code: 1) }
+        }
+
+        private func copy(_ value: NSMutableArray) throws -> NSMutableArray {
+            let data = try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
+            return try XCTUnwrap(PropertyListSerialization.propertyList(
+                from: data, options: .mutableContainersAndLeaves, format: nil) as? NSMutableArray)
+        }
+    }
+
+    private var defaults: UserDefaults!
+    private var suite: String!
+    private let journalKey = "allowInMenuBarJournal"
+    private let pendingKey = "allowInMenuBarPending"
+
+    override func setUp() {
+        super.setUp()
+        suite = "HiddenBarTests.AllowList.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suite)!
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suite)
+        defaults = nil
+        super.tearDown()
+    }
+
+    private func bundle(_ id: String) -> NSDictionary { ["bundle": ["_0": id]] }
+    private func path(_ name: String) -> NSDictionary {
+        ["adhocBinary": ["_0": ["relative": "file:///Applications/\(name).app/Contents/MacOS/\(name)"]]]
+    }
+
+    private func entries(_ ids: [String]) -> NSMutableArray {
+        let result = NSMutableArray()
+        for id in ids {
+            result.add(bundle(id))
+            result.add(NSMutableDictionary(dictionary: ["isAllowed": true,
+                                                       "menuItemLocations": NSMutableArray(object: bundle(id))]))
+        }
+        return result
+    }
+
+    private func value(_ store: Store, _ index: Int = 0) -> NSMutableDictionary {
+        store.entries[index * 2 + 1] as! NSMutableDictionary
+    }
+
+    private func journal() throws -> AllowList.Journal {
+        try PropertyListDecoder().decode(AllowList.Journal.self, from: XCTUnwrap(defaults.data(forKey: journalKey)))
+    }
+
+    private func bridge(_ store: Store, running: Set<String> = ["a"],
+                        synchronize: (() -> Bool)? = nil,
+                        diagnostics: @escaping (MenuBarAllowListBridge.Diagnostic) -> Void = { _ in }) -> MenuBarAllowListBridge {
+        MenuBarAllowListBridge(defaults: defaults, runningBundleIdentifiers: { running },
+                              executableURL: { URL(string: "file:///Applications/\($0).app/Contents/MacOS/\($0)") },
+                              readEntries: { try store.read() }, writeEntries: { try store.write($0) },
+                              synchronizeJournal: synchronize, diagnostic: diagnostics)
+    }
+
+    private func activate(_ bridge: MenuBarAllowListBridge, keeping: [String] = []) throws -> NativeVisibilityAssertion {
+        var result: Result<NativeVisibilityAssertion, Error>?
+        bridge.activate(allowedSystemItems: [], allowedBundleIdentifiers: keeping) { result = $0 }
+        return try XCTUnwrap(result).get()
+    }
+
+    func testJournalIsDurableAndPendingBeforeSwitchWrite() throws {
+        let store = Store(entries(["a"]))
+        let bridge = bridge(store)
+        var persisted = false
+        store.beforeWrite = {
+            let durable = UserDefaults(suiteName: self.suite)!
+            persisted = durable.bool(forKey: self.pendingKey)
+                && durable.data(forKey: self.journalKey) != nil
+            XCTAssertEqual(try? self.journal().values.first?.original, true)
+        }
+        let handle = try activate(bridge)
+        XCTAssertTrue(persisted)
+        XCTAssertFalse(defaults.bool(forKey: pendingKey))
+        XCTAssertFalse(try journal().isEmpty)
+        XCTAssertTrue(handle.invalidate())
+    }
+
+    func testJournalSynchronizationFailureNeverWritesSwitches() {
+        let store = Store(entries(["a"]))
+        let bridge = bridge(store, synchronize: { false })
+        XCTAssertThrowsError(try activate(bridge))
+        XCTAssertEqual(store.writes, 0)
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+        XCTAssertFalse((try? journal().isEmpty) ?? true)
+        XCTAssertTrue(defaults.bool(forKey: pendingKey))
+    }
+
+    func testFailedSwitchWriteKeepsRecoveryAcrossRelaunch() throws {
+        let store = Store(entries(["a"]))
+        store.failWrites = true
+        XCTAssertThrowsError(try activate(bridge(store)))
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+        XCTAssertTrue(defaults.bool(forKey: pendingKey))
+        store.failWrites = false
+        bridge(store).restoreAfterUnexpectedExit()
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+        XCTAssertTrue(try journal().isEmpty)
+        XCTAssertFalse(defaults.bool(forKey: pendingKey))
+    }
+
+    func testPendingWithoutJournalStillRunsLaunchRecovery() {
+        let store = Store(entries(["a"]))
+        defaults.set(true, forKey: pendingKey)
+        bridge(store).restoreAfterUnexpectedExit()
+        XCTAssertFalse(defaults.bool(forKey: pendingKey))
+        XCTAssertEqual(store.writes, 0)
+        XCTAssertGreaterThanOrEqual(store.reads, 3)
+    }
+
+    func testFailedRestoreRetainsHandleForRetry() throws {
+        let store = Store(entries(["a"]))
+        let bridge = bridge(store)
+        let handle = try activate(bridge)
+        store.failWrites = true
+        XCTAssertFalse(handle.invalidate())
+        XCTAssertFalse(try journal().isEmpty)
+        // Model a failed synchronization that did not reach the external store.
+        value(store)["isAllowed"] = false
+        store.failWrites = false
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+        XCTAssertTrue(try journal().isEmpty)
+        XCTAssertTrue(handle.invalidate())
+    }
+
+    func testCompletionJournalFailureKeepsPendingRecovery() throws {
+        let store = Store(entries(["a"]))
+        var synchronizations = 0
+        let bridge = bridge(store, synchronize: {
+            synchronizations += 1
+            return synchronizations != 6
+        })
+        let handle = try activate(bridge)
+        XCTAssertFalse(handle.invalidate())
+        XCTAssertTrue(defaults.bool(forKey: pendingKey))
+        XCTAssertFalse(try journal().isEmpty)
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertTrue(try journal().isEmpty)
+    }
+
+    func testSupersededHandleCannotRestoreNewActivation() throws {
+        let store = Store(entries(["a"]))
+        let bridge = bridge(store)
+        let first = try activate(bridge)
+        let second = try activate(bridge)
+        XCTAssertTrue(first.invalidate())
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+        XCTAssertTrue(second.invalidate())
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+    }
+
+    func testMissingEntryRemainsJournaledUntilLaterRestore() throws {
+        let store = Store(entries(["a", "b"]))
+        let bridge = bridge(store, running: ["a", "b"])
+        let handle = try activate(bridge)
+        let bKey = store.entries[2]
+        let bValue = store.entries[3]
+        store.entries.removeObjects(in: NSRange(location: 2, length: 2))
+        XCTAssertFalse(handle.invalidate())
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+        XCTAssertEqual(try journal().count, 1)
+        store.entries.add(bKey)
+        store.entries.add(bValue)
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertEqual(value(store, 1)["isAllowed"] as? Bool, true)
+        XCTAssertTrue(try journal().isEmpty)
+    }
+
+    func testLaterActivationRetriesUnresolvedRestoration() throws {
+        let store = Store(entries(["a", "b"]))
+        let bridge = bridge(store, running: ["a", "b"])
+        let handle = try activate(bridge)
+        let key = store.entries[2]
+        let item = store.entries[3]
+        store.entries.removeObjects(in: NSRange(location: 2, length: 2))
+        XCTAssertFalse(handle.invalidate())
+        store.entries.add(key)
+        store.entries.add(item)
+        let next = try activate(bridge, keeping: ["a", "b"])
+        XCTAssertTrue(try journal().isEmpty)
+        XCTAssertEqual(value(store, 1)["isAllowed"] as? Bool, true)
+        XCTAssertTrue(next.invalidate())
+    }
+
+    func testRestoreRemovesOnlyLocationsAddedByHiddenBar() throws {
+        let store = Store(entries(["a"]))
+        let original = path("Old")
+        value(store)["menuItemLocations"] = NSMutableArray(object: original)
+        let bridge = bridge(store)
+        let handle = try activate(bridge)
+        XCTAssertEqual(try journal().values.first?.addedLocations, ["a"])
+        let agentLocation = bundle("agent.helper")
+        (value(store)["menuItemLocations"] as! NSMutableArray).add(agentLocation)
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertEqual(value(store)["menuItemLocations"] as? NSArray, NSArray(array: [original, agentLocation]))
+    }
+
+    func testRestorePreservesOriginallyAbsentLocationsField() throws {
+        let store = Store(entries(["a"]))
+        value(store).removeObject(forKey: "menuItemLocations")
+        let original = try store.read()
+        let bridge = bridge(store)
+        let handle = try activate(bridge)
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertEqual(store.entries, original)
+    }
+
+    func testUserChangedSwitchSurvivesRestore() throws {
+        let store = Store(entries(["a"]))
+        value(store)["isAllowed"] = false
+        let bridge = bridge(store)
+        let handle = try activate(bridge)
+        value(store)["isAllowed"] = true
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+        XCTAssertTrue(try journal().isEmpty)
+    }
+
+    func testReconcileDropsUserOverrideUntilNextCollapse() throws {
+        let store = Store(entries(["a"]))
+        let bridge = bridge(store)
+        let first = try activate(bridge)
+        value(store)["isAllowed"] = true
+        let second = try activate(bridge)
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+        XCTAssertTrue(try journal().isEmpty)
+        // Once the external change has been observed, a later off choice also
+        // belongs to the user rather than to the old recovery record.
+        value(store)["isAllowed"] = false
+        XCTAssertTrue(first.invalidate())
+        XCTAssertTrue(second.invalidate())
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+        value(store)["isAllowed"] = true
+        let third = try activate(bridge)
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+        XCTAssertTrue(third.invalidate())
+    }
+
+    func testAdhocKeyAndExecutableLocationHideAndRecover() throws {
+        let store = Store(entries(["a"]))
+        store.entries[0] = path("a")
+        value(store)["menuItemLocations"] = NSMutableArray(object: path("a"))
+        let original = try store.read()
+        let bridge = bridge(store)
+        let handle = try activate(bridge)
+        XCTAssertTrue(handle.unmatchedHiddenBundleIdentifiers.isEmpty)
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+        XCTAssertNotNil(try journal()[XCTUnwrap(AllowList.identity(path("a")))])
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertEqual(store.entries, original)
+    }
+
+    func testAdhocKeyWithBundleLocationIsNotSkipped() throws {
+        let store = Store(entries(["a"]))
+        store.entries[0] = path("Old")
+        let bridge = bridge(store)
+        let handle = try activate(bridge)
+        XCTAssertTrue(handle.unmatchedHiddenBundleIdentifiers.isEmpty)
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+        XCTAssertTrue(handle.invalidate())
+    }
+
+    func testFullKeyIdentityIsStableAndDistinguishesPaths() throws {
+        let a = NSDictionary(dictionary: ["adhocBinary": ["_0": ["relative": "file:///a", "base": "x"]], "version": 1])
+        let reordered = NSDictionary(dictionary: ["version": 1, "adhocBinary": ["_0": ["base": "x", "relative": "file:///a"]]])
+        XCTAssertEqual(try XCTUnwrap(AllowList.identity(a)), try XCTUnwrap(AllowList.identity(reordered)))
+        XCTAssertNotEqual(AllowList.identity(path("a")), AllowList.identity(path("b")))
+        XCTAssertNotEqual(AllowList.identity(a), AllowList.identity(["adhocBinary": ["_0": ["relative": "file:///a"]]]))
+    }
+
+    func testUnmatchedHiddenBundlesAreReturnedAndLogged() throws {
+        let store = Store(entries(["a"]))
+        var diagnostics: [MenuBarAllowListBridge.Diagnostic] = []
+        let bridge = bridge(store, running: ["a", "missing"], diagnostics: { diagnostics.append($0) })
+        let handle = try activate(bridge)
+        XCTAssertEqual(handle.unmatchedHiddenBundleIdentifiers, ["missing"])
+        XCTAssertTrue(diagnostics.contains(.unmatched(["missing"])))
+        XCTAssertTrue(handle.invalidate())
+    }
+
+    func testPostWriteReadDetectsAndLogsMismatch() {
+        let store = Store(entries(["a"]))
+        store.ignoreWrites = true
+        var diagnostics: [MenuBarAllowListBridge.Diagnostic] = []
+        let bridge = bridge(store, diagnostics: { diagnostics.append($0) })
+        XCTAssertThrowsError(try activate(bridge))
+        XCTAssertTrue(diagnostics.contains(.writeMismatch))
+        XCTAssertTrue(defaults.bool(forKey: pendingKey))
+        XCTAssertFalse((try? journal().isEmpty) ?? true)
+    }
+
+    func testLaunchAuditLogsUnmanagedDisabledEntriesWithoutWriting() {
+        let store = Store(entries(["a"]))
+        value(store)["isAllowed"] = false
+        var diagnostics: [MenuBarAllowListBridge.Diagnostic] = []
+        let bridge = bridge(store, diagnostics: { diagnostics.append($0) })
+        bridge.restoreAfterUnexpectedExit()
+        XCTAssertEqual(diagnostics, [.unmanagedDisabled(AllowList.identity(bundle("a"))!)])
+        XCTAssertEqual(store.writes, 0)
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+    }
+
+    func testLaunchAuditExcludesJournaledEntriesAndRecoversThem() throws {
+        let store = Store(entries(["a"]))
+        let bridge = bridge(store)
+        _ = try activate(bridge)
+        var diagnostics: [MenuBarAllowListBridge.Diagnostic] = []
+        self.bridge(store, diagnostics: { diagnostics.append($0) }).restoreAfterUnexpectedExit()
+        XCTAssertTrue(diagnostics.isEmpty)
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+    }
+
+    func testFreshReadPreservesConcurrentEntryAndSwitchChange() throws {
+        let store = Store(entries(["a", "b"]))
+        store.beforeRead = { count in
+            guard count == 2 else { return }
+            self.value(store, 1)["isAllowed"] = false
+            store.entries.addObjects(from: self.entries(["new"]).map { $0 })
+        }
+        let bridge = bridge(store)
+        let handle = try activate(bridge)
+        XCTAssertEqual(store.entries.count, 6)
+        XCTAssertEqual(value(store, 1)["isAllowed"] as? Bool, false)
+        XCTAssertEqual(value(store, 2)["isAllowed"] as? Bool, true)
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertEqual(value(store, 1)["isAllowed"] as? Bool, false)
+    }
+
+    func testFreshReadAfterJournalingCapturesNewOriginalValue() throws {
+        let store = Store(entries(["a"]))
+        var synchronizations = 0
+        let bridge = bridge(store, synchronize: {
+            synchronizations += 1
+            if synchronizations == 1 {
+                self.value(store)["isAllowed"] = false
+                store.entries.addObjects(from: self.entries(["new"]).map { $0 })
+            }
+            return self.defaults.synchronize()
+        })
+        let handle = try activate(bridge)
+        XCTAssertEqual(store.entries.count, 4)
+        XCTAssertEqual(try journal().values.first?.original, false)
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+        XCTAssertEqual(value(store, 1)["isAllowed"] as? Bool, true)
     }
 }
