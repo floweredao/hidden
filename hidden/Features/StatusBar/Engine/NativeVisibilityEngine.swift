@@ -27,7 +27,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
     private let sectionOverrides: () -> [String: MenuBarSection]
     private let keepsIndicatorsWhenExpanded: () -> Bool
     private let schedule: (TimeInterval, @escaping () -> Void) -> DispatchWorkItem
-    private var launchObserver: NSObjectProtocol?
+    private var workspaceObservers: [NSObjectProtocol] = []
     private var discovery: DispatchWorkItem?
     private var discoveryInFlight = false
     private var retriesRemaining: [String: Int] = [:]
@@ -35,6 +35,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
     private var unrestrictedIcons = Set<String>()
 
     private(set) var state: MenuBarEngineState = .expanded
+    var onStateChange: (() -> Void)?
     private(set) var layout: MenuBarLayout?
     private(set) var unavailableReason: HidingUnavailableReason?
     private var assertion: NativeVisibilityAssertion?
@@ -75,15 +76,18 @@ final class NativeVisibilityEngine: MenuBarEngine {
         self.keepsIndicatorsWhenExpanded = keepsIndicatorsWhenExpanded
         self.schedule = schedule
         items.separatorItem.isVisible = false
-        launchObserver = launchNotifications.addObserver(forName: NSWorkspace.didLaunchApplicationNotification,
-                                                          object: nil, queue: .main) { [weak self] _ in
-            self?.applicationLaunched()
+        items.separatorItem.length = 20
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+            workspaceObservers.append(launchNotifications.addObserver(forName: name,
+                                                                      object: nil, queue: .main) { [weak self] _ in
+                self?.applicationLaunched()
+            })
         }
     }
 
     deinit {
         discovery?.cancel()
-        if let observer = launchObserver { launchNotifications.removeObserver(observer) }
+        workspaceObservers.forEach { launchNotifications.removeObserver($0) }
     }
 
     func collapse(completion: @escaping (CollapseResult) -> Void) {
@@ -151,6 +155,8 @@ final class NativeVisibilityEngine: MenuBarEngine {
         } else if state == .expanded {
             cancelPending()
             applyExpandedPresentation()
+        } else {
+            setSeparatorsVisible(unavailableReason != .restoreFailed)
         }
     }
 
@@ -186,7 +192,8 @@ final class NativeVisibilityEngine: MenuBarEngine {
             self.activate(hidesOnlyAlwaysHidden: true, version: version) { succeeded in
                 guard self.generation == version else { return completion(false) }
                 if !succeeded && self.unavailableReason == .restoreFailed { self.state = .unavailable }
-                self.setSeparatorsVisible(!succeeded && self.unavailableReason != .restoreFailed)
+                self.setSeparatorsVisible(!succeeded && self.unavailableReason != .restoreFailed,
+                                          hidesOnlyAlwaysHidden: succeeded)
                 completion(succeeded)
             }
         }
@@ -291,7 +298,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
                 read.sections[bundle] = cached?.sections[bundle] ?? .visible
             }
             read.isCached = restricted || !snapshot.unreadableBundles.intersection(self.unrestrictedIcons).isEmpty
-            let icons = snapshot.iconBundles.union(restricted ? held : []).subtracting(snapshot.unreadableBundles)
+            let icons = snapshot.iconBundles.subtracting(snapshot.unreadableBundles).union(restricted ? held : [])
             completion(read, icons, snapshot.unreadableBundles, snapshot.iconBundles)
         }
     }
@@ -301,8 +308,8 @@ final class NativeVisibilityEngine: MenuBarEngine {
         let sections: Set<MenuBarSection> = onlyAlwaysHidden ? [.alwaysHidden] : [.hidden, .alwaysHidden]
         let hidden = Set(chosen.bundles(in: sections)).intersection(iconBundles)
         // Iconless parents must not protect a shared entry that represents a
-        // hidden helper. An unreadable app, however, must fail open.
-        var allowed = iconBundles.subtracting(hidden).union(unreadableBundles)
+        // hidden helper. Only unreadable apps not already held must fail open.
+        var allowed = iconBundles.union(unreadableBundles).subtracting(hidden)
         if let own = ownBundleIdentifier { allowed.insert(own) }
         allowed.formUnion(MenuBarLayoutResolver.systemItemOwners.intersection(iconBundles))
         return (hidden, allowed)
@@ -321,7 +328,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
         let sorted = allowed + requested.allowed.subtracting(allowed).sorted()
         // An absent item keeps its saved trailing distance. Zero width still
         // participates in MenuBarAgent's persistence while its neighbours are off.
-        setSeparatorsVisible(false)
+        setSeparatorsVisible(false, hidesOnlyAlwaysHidden: hidesOnlyAlwaysHidden && assertionHidesOnlyAlwaysHidden)
         visibility.activate(allowedSystemItems: Self.systemItemsToKeep,
                             allowedBundleIdentifiers: sorted,
                             hiddenBundleIdentifiers: requested.hidden) { [weak self] result in
@@ -356,7 +363,12 @@ final class NativeVisibilityEngine: MenuBarEngine {
                 } else {
                     self.report(.restoreFailed)
                 }
-                self.scheduleDiscovery()
+                if hidesOnlyAlwaysHidden && self.failedRestorations.isEmpty {
+                    self.setSeparatorsVisible(false, hidesOnlyAlwaysHidden: true)
+                }
+                let retrying = handle.unmatchedHiddenBundleIdentifiers.intersection(requested.hidden)
+                    .contains { (self.retriesRemaining[$0] ?? 0) > 0 }
+                self.scheduleDiscovery(after: retrying ? 0 : 1)
                 completion(self.failedRestorations.isEmpty)
             case .failure:
                 let restored = self.releaseAssertion()
@@ -369,6 +381,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
     private func reconcile() {
         guard assertion != nil, state != .calibrating, unavailableReason != .restoreFailed,
               !discoveryInFlight else { return }
+        guard canReadBoundary() else { return }
         discovery?.cancel()
         discoveryInFlight = true
         let version = generation
@@ -377,6 +390,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
             guard let self = self else { return }
             guard version == self.generation else { return }
             self.discoveryInFlight = false
+            guard self.canReadBoundary() else { return }
             guard let read = read else { return self.scheduleDiscovery() }
             let appeared = liveIcons.subtracting(self.observedIcons)
             self.remember(read, icons: icons, unreadable: unreadable, liveIcons: liveIcons)
@@ -391,7 +405,13 @@ final class NativeVisibilityEngine: MenuBarEngine {
             let retrying = (self.assertion?.unmatchedHiddenBundleIdentifiers ?? [])
                 .intersection(next.hidden).filter { (self.retriesRemaining[$0] ?? 0) > 0 }
             guard changed || !returned.isEmpty || !retrying.isEmpty else {
-                return self.scheduleDiscovery()
+                if self.unavailableReason == .accessibilityNeeded || self.unavailableReason == .boundaryUnreadable {
+                    self.unavailableReason = nil
+                    self.onStateChange?()
+                }
+                // Keep discovering icons in running apps without a full AX walk
+                // every second when the targets and registration are settled.
+                return self.scheduleDiscovery(after: appeared.isEmpty ? 10 : 1)
             }
             for bundle in retrying { self.retriesRemaining[bundle, default: 0] -= 1 }
             self.discoveryInFlight = true
@@ -402,15 +422,33 @@ final class NativeVisibilityEngine: MenuBarEngine {
                     self.state = self.unavailableReason == .restoreFailed ? .unavailable : .expanded
                     self.setSeparatorsVisible(self.unavailableReason != .restoreFailed)
                 }
+                self.onStateChange?()
             }
         }
     }
 
-    private func scheduleDiscovery() {
+    private func canReadBoundary() -> Bool {
+        let reason: HidingUnavailableReason?
+        if !inventory.isAuthorized {
+            reason = .accessibilityNeeded
+        } else if items.flatMap({ itemFrame($0.toggleItem) }) == nil {
+            reason = .boundaryUnreadable
+        } else {
+            return true
+        }
+        if let reason = reason {
+            report(reason)
+            onStateChange?()
+        }
+        scheduleDiscovery(after: 10)
+        return false
+    }
+
+    private func scheduleDiscovery(after delay: TimeInterval = 1) {
         discovery?.cancel()
         // Registration can lag the icon by several seconds. Each appearance
         // gets its own bounded budget; unrelated launches do not replenish it.
-        discovery = schedule(1) { [weak self] in self?.reconcile() }
+        discovery = schedule(delay) { [weak self] in self?.reconcile() }
     }
 
     private func cancelPending() {
@@ -451,8 +489,11 @@ final class NativeVisibilityEngine: MenuBarEngine {
         return true
     }
 
-    private func setSeparatorsVisible(_ visible: Bool) {
-        items?.separatorItem.isVisible = false
+    private func setSeparatorsVisible(_ visible: Bool, hidesOnlyAlwaysHidden: Bool = false) {
+        // Zero width still lets MenuBarAgent rewrite the saved slot while the
+        // neighbours are absent. Remove the item instead until restoration.
+        items?.separatorItem.isVisible = visible || (hidesOnlyAlwaysHidden && unavailableReason != .restoreFailed)
+        items?.separatorItem.length = 20
         guard let separator = items?.alwaysHiddenItem else { return }
         separator.isVisible = visible && alwaysHiddenEnabled
         separator.length = alwaysHiddenEnabled ? 20 : 0
