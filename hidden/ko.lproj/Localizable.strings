@@ -49,6 +49,7 @@
 
 /* Settings picture: the arrow is the boundary (macOS 27 native hiding) */
 "In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them, or use Menu Bar Items… below." = "Mac 메뉴 막대에서 ⌘를 누른 채 아이콘을 화살표 왼쪽으로 끌면 숨겨져요. 아래 ‘메뉴 막대 항목…’에서 골라도 돼요.";
+"Icons to the left of the first | are always hidden." = "첫 번째 | 왼쪽의 아이콘은 항상 숨겨져요.";
 "In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them." = "Mac 메뉴 막대에서 ⌘를 누른 채 아이콘을 화살표 왼쪽으로 끌면 숨겨져요.";
 
 /* Why hiding does not work */

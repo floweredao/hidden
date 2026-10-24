@@ -53,9 +53,17 @@ defaults export "$BUNDLE_ID" "$BACKUP_DIR/$BUNDLE_ID-$STAMP.plist"
 
 if pgrep -x "Hidden Bar" >/dev/null; then
   step "Quitting the running Hidden Bar"
-  osascript -e "quit app id \"$BUNDLE_ID\"" >/dev/null 2>&1 || true
+  # SIGTERM takes the app's own Quit path, which turns the menu bar switches
+  # back on before exiting. osascript is not used because its Apple event can
+  # raise an Automation permission prompt. Builds older than the signal handler
+  # exit at once on SIGTERM; the new copy recovers their switches at launch.
+  pkill -TERM -x "Hidden Bar" || true
   for _ in $(seq 1 20); do pgrep -x "Hidden Bar" >/dev/null || break; sleep 0.5; done
-  if pgrep -x "Hidden Bar" >/dev/null; then pkill -x "Hidden Bar"; sleep 1; fi
+  if pgrep -x "Hidden Bar" >/dev/null; then
+    printf 'warning: Hidden Bar did not exit within 10 s after SIGTERM; killing it. Switches it turned off stay off until the new copy recovers them at launch.\n' >&2
+    pkill -KILL -x "Hidden Bar" || true
+    sleep 1
+  fi
   ! pgrep -x "Hidden Bar" >/dev/null || fail "Hidden Bar is still running"
 fi
 

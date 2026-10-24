@@ -13,6 +13,8 @@ import AppKit
 // its own engine without version checks spreading through the controller.
 protocol MenuBarEngine: AnyObject {
     var state: MenuBarEngineState { get }
+    // Background reconciliation publishes after state and problem are final.
+    var onStateChange: (() -> Void)? { get set }
 
     func collapse(completion: @escaping (CollapseResult) -> Void)
     func expand()
@@ -62,6 +64,11 @@ enum HidingUnavailableReason: Equatable {
 }
 
 extension MenuBarEngine {
+    var onStateChange: (() -> Void)? {
+        get { nil }
+        set {}
+    }
+
     var supportsSectionAssignment: Bool { false }
 
     func readSections(completion: @escaping (MenuBarLayout?) -> Void) {

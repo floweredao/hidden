@@ -22,6 +22,19 @@ class AppDelegate: NSObject, NSApplicationDelegate{
     // direction it reads are in place and only in the instance that stays.
     private(set) var statusBarController: StatusBarController!
 
+    // False when the switches a previous session left off could not be turned
+    // back on at launch; the recovery journal is then kept for another try.
+    private(set) var launchRecovered = true
+
+    // Only the instance that passed ensureSingleInstance owns the recovery
+    // journal; a duplicate quitting must leave it alone.
+    private var ownsRecoveryJournal = false
+    private var signalSources: [DispatchSourceSignal] = []
+    private lazy var lifecycle = AppLifecycle(
+        isOwner: { [weak self] in self?.ownsRecoveryJournal ?? false },
+        recover: AppDelegate.recoverMenuBarSettings,
+        restore: AppDelegate.restoreMenuBarSettings)
+
     #if HIDDENBAR_UPDATER
     // The fork's own updater: checks floweredao/hidden's appcast (SUFeedURL) and
     // installs only archives signed with the fork's EdDSA key (SUPublicEDKey).
@@ -46,15 +59,18 @@ class AppDelegate: NSObject, NSApplicationDelegate{
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         guard ensureSingleInstance() else { return }
+        ownsRecoveryJournal = true
+        // pkill and Ctrl-C go through the same restore-then-quit path as Quit.
+        signalSources = AppLifecycle.installSignalHandlers { _ in NSApp.terminate(nil) }
         registerDefaultValues()
         detectLTRLang()
-        #if HIDDENBAR_NATIVE_VISIBILITY
-        // A session that ended while collapsed left apps switched off.
-        if MenuBarEngineFactory.usesMenuBarSettings {
-            MenuBarAllowListBridge.shared.restoreAfterUnexpectedExit()
+        // A session that ended while collapsed left apps switched off. The
+        // controller, and the initial collapse it schedules, start only after
+        // that recovery has run.
+        lifecycle.launch { recovered in
+            launchRecovered = recovered
+            statusBarController = StatusBarController()
         }
-        #endif
-        statusBarController = StatusBarController()
         setupAutoStartApp()
         setupHotKey()
         #if HIDDENBAR_UPDATER
@@ -63,12 +79,33 @@ class AppDelegate: NSObject, NSApplicationDelegate{
         openPreferencesIfNeeded()
     }
 
-    // Quitting while collapsed must not leave apps switched off in Settings.
-    func applicationWillTerminate(_ notification: Notification) {
+    // Quitting while collapsed must not leave apps switched off in Settings,
+    // so termination waits for the restore.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        return lifecycle.shouldTerminate()
+    }
+
+    // Not gated on the backend preference: a journal written while the Settings
+    // backend was on must still be undone after the preference changes, and
+    // without a journal the bridge returns at once.
+    private static func recoverMenuBarSettings() -> Bool {
         #if HIDDENBAR_NATIVE_VISIBILITY
-        if MenuBarEngineFactory.usesMenuBarSettings {
-            MenuBarAllowListBridge.shared.restoreAll()
-        }
+        let bridge = MenuBarAllowListBridge.shared
+        bridge.restoreAfterUnexpectedExit()
+        // restoreAfterUnexpectedExit reports no result. With the journal
+        // cleared this returns true without touching Settings; otherwise it
+        // tries once more and reports the failure.
+        return bridge.restoreAll()
+        #else
+        return true
+        #endif
+    }
+
+    private static func restoreMenuBarSettings() -> Bool {
+        #if HIDDENBAR_NATIVE_VISIBILITY
+        return MenuBarAllowListBridge.shared.restoreAll()
+        #else
+        return true
         #endif
     }
 

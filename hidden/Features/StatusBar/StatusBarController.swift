@@ -57,6 +57,7 @@ class StatusBarController: MenuBarItemProvider {
     private var menuTracking = OwnedMenuTracking()
     private weak var presentedContextMenu: NSMenu?
     private var autoCollapseDeferral = AutoCollapseDeferral()
+    private var collapseGate = CollapseGate()
     private static let autoCollapseLog = OSLog(subsystem: "com.dwarvesv.minimalbar", category: "AutoCollapse")
 
     private var hoverMonitor: Any?
@@ -70,7 +71,8 @@ class StatusBarController: MenuBarItemProvider {
         let mouse = NSEvent.mouseLocation
         return NSScreen.screens.contains { screen in
             mouse.x >= screen.frame.minX && mouse.x <= screen.frame.maxX
-                && mouse.y >= screen.visibleFrame.maxY && mouse.y <= screen.frame.maxY
+                && mouse.y >= MenuBarBand.minY(frame: screen.frame, visibleFrame: screen.visibleFrame, thickness: NSStatusBar.system.thickness)
+                && mouse.y <= screen.frame.maxY
         }
     }
 
@@ -121,6 +123,9 @@ class StatusBarController: MenuBarItemProvider {
     init() {
         setupUI()
         restoreRemovedStatusItems()
+        // Background reconciliation can change the engine state without a
+        // completion reaching this controller.
+        menuBarEngine.onStateChange = { [weak self] in self?.engineStateChanged() }
         setupAlwayHideStatusBar()
         setupHoverToExpandIfEnabled()
         NotificationCenter.default.addObserver(self, selector: #selector(handleScreenParametersChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -135,6 +140,10 @@ class StatusBarController: MenuBarItemProvider {
         // launch, the separator has no position yet.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             if Preferences.areSeparatorsHidden { self?.hideSeparators() }
+            // A failed launch recovery keeps the bar expanded; a later press or
+            // retry decides what happens next.
+            let recovered = (NSApp.delegate as? AppDelegate)?.launchRecovered ?? true
+            guard InitialCollapsePolicy.shouldCollapse(launchRecovered: recovered) else { return }
             self?.collapseMenuBar()
         }
 
@@ -345,9 +354,13 @@ class StatusBarController: MenuBarItemProvider {
             autoCollapseIfNeeded()
             return
         }
+        // The engine may be waiting on a modal access prompt; a collapse from the
+        // timer or hotkey meanwhile must not take over the outer one's completion.
+        guard collapseGate.begin() else { return }
 
         menuBarEngine.collapse { [weak self] result in
             guard let self = self else { return }
+            self.collapseGate.end()
             switch result {
             case .collapsed:
                 self.hidingProblem = nil
@@ -365,9 +378,22 @@ class StatusBarController: MenuBarItemProvider {
     // a permission), so show the bar as expanded, and restore the activation
     // policy in case the UI had already switched to collapsed.
     private func didFailToCollapseMenuBar() {
-        showToggle(collapsed: menuBarEngine.unavailableReason == .restoreFailed)
+        showToggle(collapsed: EngineStatePresentation.showsCollapsedGlyph(state: menuBarEngine.state, problem: menuBarEngine.unavailableReason))
         if Preferences.useFullStatusBarOnExpandEnabled {
             NSApp.setActivationPolicy(.regular)
+        }
+    }
+
+    // Called by the engine when a background pass changed its state or problem.
+    // An outstanding collapse reports through its own completion instead.
+    private func engineStateChanged() {
+        guard !collapseGate.isCollapsing else { return }
+        hidingProblem = menuBarEngine.unavailableReason
+        if menuBarEngine.state == .collapsed {
+            showToggle(collapsed: true)
+        } else {
+            didFailToCollapseMenuBar()
+            autoCollapseIfNeeded()
         }
     }
 

@@ -17,8 +17,13 @@ enum Preferences {
         }
         
         set {
-            guard let data = try? JSONEncoder().encode(newValue) else { return }
-            UserDefaults.standard.set(data, forKey: UserDefaults.Key.globalKey)
+            // Encoding nil would store the 4 bytes "null", so clearing removes the key.
+            if let newValue {
+                guard let data = try? JSONEncoder().encode(newValue) else { return }
+                UserDefaults.standard.set(data, forKey: UserDefaults.Key.globalKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: UserDefaults.Key.globalKey)
+            }
             
             NotificationCenter.default.post(Notification(name: .prefsChanged))
         }

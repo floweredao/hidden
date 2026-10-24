@@ -106,6 +106,8 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
     private static let savedValuesKey = "allowInMenuBarSavedValues"
     private static let journalKey = "allowInMenuBarJournal"
     private static let pendingKey = "allowInMenuBarPending"
+    private static let retiredKey = "allowInMenuBarRetiredRecovery"
+    private static let completedKey = "allowInMenuBarCompletedRecovery"
     private static let bookmarkKey = "allowInMenuBarFileBookmark"
     private static let log = OSLog(subsystem: "com.dwarvesv.minimalbar", category: "AllowInMenuBar")
 
@@ -155,6 +157,10 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
         self.synchronizeJournal = synchronizeJournal ?? { defaults.synchronize() }
         self.diagnostic = diagnostic
         self.accessPrompt = accessPrompt
+        os_log("Recovery preferences domain: %{public}@; trackedApplications domain: %{public}@",
+               log: Self.log, type: .info,
+               defaults === UserDefaults.standard ? (Bundle.main.bundleIdentifier ?? "unknown") : "injected UserDefaults",
+               domain as String)
     }
 
     var isAvailable: Bool {
@@ -281,16 +287,30 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
             .mapValues { AllowList.Record(original: $0, written: false) }
     }
 
-    private func persist(_ journal: AllowList.Journal, pending: Bool) throws {
-        if journal.isEmpty && !pending {
-            // Successful restoration must durably remove recovery ownership
-            // before termination can leave an obsolete journal on disk.
+    private func archive(_ records: AllowList.Journal, forKey key: String) throws {
+        guard !records.isEmpty else { return }
+        let previous = defaults.data(forKey: key).flatMap {
+            try? PropertyListDecoder().decode(AllowList.Journal.self, from: $0)
+        } ?? [:]
+        // Later observations cannot replace an earlier ON original with OFF.
+        let combined = previous.merging(records) { old, new in old.original ? old : new }
+        defaults.set(try PropertyListEncoder().encode(combined), forKey: key)
+    }
+
+    private func persist(_ journal: AllowList.Journal, pending: Bool,
+                         completed: AllowList.Journal = [:]) throws {
+        try archive(journal.filter { $0.value.retiredReason != nil }, forKey: Self.retiredKey)
+        try archive(completed, forKey: Self.completedKey)
+        let active = journal.filter { $0.value.retiredReason == nil }
+        if active.isEmpty && !pending {
+            // Archives retain the originals after active ownership ends because
+            // preference readback cannot acknowledge MenuBarAgent's live state.
             defaults.removeObject(forKey: Self.journalKey)
             defaults.removeObject(forKey: Self.savedValuesKey)
             defaults.removeObject(forKey: Self.pendingKey)
         } else {
-            defaults.set(try PropertyListEncoder().encode(journal), forKey: Self.journalKey)
-            defaults.set(journal.mapValues(\.original), forKey: Self.savedValuesKey)
+            defaults.set(try PropertyListEncoder().encode(active), forKey: Self.journalKey)
+            defaults.set(active.mapValues(\.original), forKey: Self.savedValuesKey)
             defaults.set(pending, forKey: Self.pendingKey)
         }
         guard synchronizeJournal() else { throw NSError(domain: "AllowInMenuBar.Journal", code: 1) }
@@ -301,15 +321,30 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
     // MenuBarAgent adds entries on its own, so the list is always read fresh
     // (synchronize first) and only isAllowed of existing entries is changed.
     private func readTracked() throws -> NSMutableArray {
-        if let readEntries = readEntries { return try readEntries() }
-        let domain = self.domain
-        let blob: Data? = try withFile { _ in
-            CFPreferencesSynchronize(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
-            return CFPreferencesCopyValue(Self.trackedKey, domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? Data
+        let entries: NSMutableArray
+        if let readEntries = readEntries {
+            entries = try readEntries()
+        } else {
+            let domain = self.domain
+            let blob: Data? = try withFile { _ in
+                guard CFPreferencesSynchronize(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) else {
+                    throw NSError(domain: "AllowInMenuBar.Synchronize", code: 1)
+                }
+                return CFPreferencesCopyValue(Self.trackedKey, domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? Data
+            }
+            guard let blob = blob,
+                  let decoded = try PropertyListSerialization.propertyList(from: blob, options: .mutableContainersAndLeaves, format: nil) as? NSMutableArray
+            else { throw NSError(domain: "AllowInMenuBar", code: 1) }
+            entries = decoded
         }
-        guard let blob = blob,
-              let entries = try PropertyListSerialization.propertyList(from: blob, options: .mutableContainersAndLeaves, format: nil) as? NSMutableArray
-        else { throw NSError(domain: "AllowInMenuBar", code: 1) }
+        var identities = Set<String>()
+        for index in stride(from: 0, to: entries.count - entries.count % 2, by: 2) {
+            if let key = entries[index] as? NSDictionary, let id = AllowList.identity(key),
+               !identities.insert(id).inserted {
+                throw NSError(domain: "AllowInMenuBar.DuplicateIdentity", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: id])
+            }
+        }
         return entries
     }
 
@@ -319,14 +354,40 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
         var planned = before
         _ = AllowList.apply(hiding: hidden, keeping: kept, to: initial, journal: &planned,
                             userOverrides: &userOverrides, executableURL: executableURL)
+        let transactionID = UUID().uuidString
+        for id in Array(planned.keys) where planned[id]?.transactionID == nil {
+            planned[id]?.transactionID = transactionID
+        }
         try persist(before.merging(planned) { _, new in new }, pending: true)
         // Journal synchronization can take time. Rebase the change on a fresh
         // read afterwards, and journal any newly discovered originals as well.
         // This is not atomic: CFPreferences has no compare-and-swap operation.
         let entries = try readTracked()
         var remaining = before
+        // The first persisted original belongs to this restriction even if an
+        // instance disappears or its switch changes before the second read.
+        for index in stride(from: 0, to: initial.count - initial.count % 2, by: 2) {
+            guard let key = initial[index] as? NSDictionary, let id = AllowList.identity(key),
+                  before[id] == nil, var record = planned[id],
+                  AllowList.bundle(key).flatMap({ before[$0] }) == nil else { continue }
+            // Planning changed only a copy, so none of its locations are ours yet.
+            record.addedLocations = []
+            remaining[id] = record
+        }
+        for index in stride(from: 0, to: entries.count - entries.count % 2, by: 2) {
+            guard let key = entries[index] as? NSDictionary, let id = AllowList.identity(key),
+                  before[id] == nil, var record = remaining[id],
+                  let value = entries[index + 1] as? NSDictionary,
+                  let observed = value["isAllowed"] as? Bool else { continue }
+            record.locationsWereAbsent = value["menuItemLocations"] == nil
+            if observed != record.original { record.lastObserved = observed }
+            remaining[id] = record
+        }
         let result = AllowList.apply(hiding: hidden, keeping: kept, to: entries, journal: &remaining,
                                      userOverrides: &userOverrides, executableURL: executableURL)
+        for id in Array(remaining.keys) where remaining[id]?.transactionID == nil {
+            remaining[id]?.transactionID = planned[id]?.transactionID ?? transactionID
+        }
         // Keep restored records until the external write succeeds too.
         let recovery = before.merging(remaining) { _, new in new }
         try persist(recovery, pending: true)
@@ -340,7 +401,18 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
             }
         }
         do {
-            try persist(remaining, pending: false)
+            let completed = recovery.filter { remaining[$0.key] == nil && $0.value.retiredReason == nil }
+            try persist(remaining, pending: false, completed: completed)
+            // Journal synchronization is another opportunity for a stale
+            // writer to change the store, including when no write was needed.
+            guard entries.isEqual(try readTracked()) else {
+                diagnostic(.writeMismatch)
+                throw NSError(domain: "AllowInMenuBar", code: 3)
+            }
+            if !completed.isEmpty {
+                os_log("Preference restore re-read equal; MenuBarAgent application unconfirmed; recovery evidence retained",
+                       log: Self.log, type: .info)
+            }
         } catch {
             // A failed completion sync must not erase the pending recovery
             // record from this process's UserDefaults cache.
@@ -403,6 +475,9 @@ enum AllowList {
         let written: Bool
         var addedLocations: [String] = []
         var locationsWereAbsent = false
+        var transactionID: String?
+        var retiredReason: String?
+        var lastObserved: Bool?
     }
 
     typealias Journal = [String: Record]
@@ -473,8 +548,6 @@ enum AllowList {
                 journal[id] = record
             }
             var record = journal[id]
-            let overridden = record.map { isAllowed != $0.written } ?? false
-            if overridden { userOverrides.insert(id) }
 
             let locations = (pair.value["menuItemLocations"] as? NSArray)?.mutableCopy() as? NSMutableArray ?? NSMutableArray()
             var locationsChanged = false
@@ -484,8 +557,22 @@ enum AllowList {
             }
             let keyMatches = matches(pair.key, candidates: candidates, executableURL: executableURL)
             let missing = keyMatches.intersection(hidden).subtracting(listed)
-            let shouldHide = !represented.union(missing).isDisjoint(with: hidden)
-                && represented.isDisjoint(with: kept) && !userOverrides.contains(id)
+            let targeted = !represented.union(missing).isDisjoint(with: hidden)
+                && represented.isDisjoint(with: kept)
+            if targeted {
+                record?.retiredReason = nil
+            } else if record?.retiredReason != nil {
+                continue
+            }
+            // Relaunched instances can be re-enabled by MenuBarAgent. A still
+            // targeted entry keeps its original ownership when hidden again.
+            let overridden = !targeted && (record.map { isAllowed != $0.written } ?? false)
+            if overridden {
+                userOverrides.insert(id)
+                record?.retiredReason = "unattributedChange"
+                record?.lastObserved = isAllowed
+            }
+            let shouldHide = targeted
 
             if shouldHide {
                 if record == nil {
@@ -511,7 +598,11 @@ enum AllowList {
                         }
                     }
                 }
-                journal.removeValue(forKey: id)
+                if record?.retiredReason != nil {
+                    journal[id] = record
+                } else {
+                    journal.removeValue(forKey: id)
+                }
             }
             if locationsChanged {
                 if !shouldHide && record?.locationsWereAbsent == true && locations.count == 0 {

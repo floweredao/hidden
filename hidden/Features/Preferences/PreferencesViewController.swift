@@ -371,16 +371,33 @@ extension PreferencesViewController {
             return
         }
         hidingStatusLabel.stringValue = StatusBarController.describe(problem)
-        hidingStatusButton.title = problem == .accessibilityNeeded
-            ? "Open Accessibility Settings…".localized
-            : "Try Hiding Again".localized
+        hidingStatusButton.title = Self.hidingFixTitle(for: problem)
         hidingStatusRow.isHidden = false
+    }
+
+    static func hidingFixTitle(for problem: HidingUnavailableReason) -> String {
+        // Same wording as the status item's context menu.
+        switch problem {
+        case .fileAccessNeeded: return "Grant Access…".localized
+        case .accessibilityNeeded: return "Open Accessibility Settings…".localized
+        default: return "Try Hiding Again".localized
+        }
+    }
+
+    // The picture matches the original app: the hidden section is closed by a
+    // visible | before the arrow, whichever engine runs.
+    static func tutorialIconNames(alwaysHidden: Bool) -> [String] {
+        alwaysHidden
+            ? ["ico_1","ico_2","ico_3","ico_4","seprated_1","ico_5","ico_6","seprated","ico_collapse","ico_7"]
+            : ["ico_1","ico_2","ico_3","seprated","ico_collapse","ico_4","ico_5","ico_6","ico_7"]
     }
 
     @objc private func fixHidingProblem(_ sender: NSButton) {
         guard let statusBar = statusBarController else { return }
         if statusBar.hidingProblem == .accessibilityNeeded {
             statusBar.openAccessibilitySettings()
+        } else if statusBar.hidingProblem == .fileAccessNeeded {
+            statusBar.grantAccess()
         } else {
             statusBar.retryHiding()
         }
@@ -661,12 +678,8 @@ extension PreferencesViewController {
         let imageWidth: CGFloat = 16
         
         
-        // The picture shows the boundary the running engine really uses: the
-        // arrow on macOS 27's native hiding, the | separator otherwise.
         let arrowIsBoundary = MenuBarEngineFactory.usesArrowAsBoundary
-        let names = arrowIsBoundary
-            ? ["ico_1","ico_2","ico_3","ico_collapse","ico_4","ico_5","ico_6","ico_7"]
-            : ["ico_1","ico_2","ico_3","seprated", "ico_collapse","ico_4","ico_5","ico_6","ico_7"]
+        let names = Self.tutorialIconNames(alwaysHidden: false)
         let images = names.map { imageName in
             NSImageView(image: NSImage(named: imageName)!)
         }
@@ -705,9 +718,7 @@ extension PreferencesViewController {
         
         
         let arrowIsBoundary = MenuBarEngineFactory.usesArrowAsBoundary
-        let names = arrowIsBoundary
-            ? ["ico_1","ico_2","ico_3","ico_4", "seprated_1","ico_5","ico_6","ico_collapse","ico_7"]
-            : ["ico_1","ico_2","ico_3","ico_4", "seprated_1","ico_5","ico_6","seprated", "ico_collapse","ico_7"]
+        let names = Self.tutorialIconNames(alwaysHidden: true)
         // Index 7 is the boundary in both: the arrow, or the | separator.
         let boundaryIndex = 7
         let images = names.map { imageName in
@@ -749,7 +760,11 @@ extension PreferencesViewController {
         let text = statusBarController?.supportsSectionAssignment ?? false
             ? "In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them, or use Menu Bar Items… below."
             : "In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them."
-        textFieldTitle.stringValue = text.localized
+        var caption = text.localized
+        if Preferences.alwaysHiddenSectionEnabled {
+            caption += " " + "Icons to the left of the first | are always hidden.".localized
+        }
+        textFieldTitle.stringValue = caption
     }
     
     @IBAction func btnAlwayHiddenHelpPressed(_ sender: NSButton) {
