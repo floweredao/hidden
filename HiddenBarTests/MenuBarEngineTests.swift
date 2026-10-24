@@ -522,6 +522,99 @@ final class NativeVisibilityEngineTests: XCTestCase {
         XCTAssertEqual(engine.state, .collapsed)
     }
 
+    func testLaunchDuringCalibrationRetriesPreviouslyUnreadableIcon() {
+        let clock = ManualScheduler()
+        inventory.unreadableBundles = ["com.late"]
+        let engine = makeEngine(schedule: clock.schedule)
+        engine.collapse { _ in }
+        inventory.unreadableBundles = []
+        inventory.items.append(item("com.late", x: 1200))
+        launches.post(name: NSWorkspace.didLaunchApplicationNotification, object: nil)
+        XCTAssertEqual(engine.state, .calibrating)
+        visibility.succeed(0)
+        clock.fire()
+        XCTAssertEqual(engine.layout?.sections["com.late"], .hidden)
+        XCTAssertEqual(visibility.requests.last?.hidden.contains("com.late"), true)
+    }
+
+    func testIconFirstReadWhileRestrictedCanSettleOnHiddenSide() {
+        let clock = ManualScheduler()
+        let engine = makeEngine(schedule: clock.schedule)
+        engine.collapse { _ in }
+        visibility.succeed(0)
+        inventory.items.append(item("com.settling", x: 1400))
+        clock.fire()
+        visibility.succeed(1)
+        inventory.items[inventory.items.count - 1] = item("com.settling", x: 1200)
+        clock.fire()
+        XCTAssertEqual(engine.layout?.sections["com.settling"], .hidden)
+        XCTAssertEqual(visibility.requests.last?.hidden.contains("com.settling"), true)
+    }
+
+    func testHiddenIconReappearanceRetargetsEvenWhenTargetsAreUnchanged() {
+        let clock = ManualScheduler()
+        let engine = makeEngine(schedule: clock.schedule)
+        engine.collapse { _ in }
+        visibility.succeed(0)
+        inventory.items.removeAll { $0.bundleIdentifier == "com.hidden" }
+        inventory.noIconBundles = ["com.hidden"]
+        clock.fire()
+        XCTAssertEqual(visibility.requests.count, 1)
+        inventory.noIconBundles = []
+        inventory.items.append(item("com.hidden", x: 1200))
+        clock.fire()
+        XCTAssertEqual(visibility.requests.count, 2, "a new appearance can have a default-on entry")
+    }
+
+    func testEntryRegisteringAfterFivePollsStillGetsHidden() {
+        let clock = ManualScheduler()
+        let engine = makeEngine(schedule: clock.schedule)
+        engine.collapse { _ in }
+        visibility.succeed(0)
+        inventory.items.append(item("com.lateEntry", x: 1200))
+        for _ in 0..<9 {
+            let before = visibility.requests.count
+            clock.fire()
+            if visibility.requests.count > before {
+                visibility.succeed(visibility.requests.count - 1, unmatched: ["com.lateEntry"])
+            }
+        }
+        let beforeRegistration = visibility.requests.count
+        clock.fire()
+        XCTAssertEqual(visibility.requests.count, beforeRegistration + 1,
+                       "registration at nine seconds must not outlive the retry budget")
+        if visibility.requests.count > beforeRegistration {
+            visibility.succeed(visibility.requests.count - 1)
+        }
+        clock.fire()
+        XCTAssertEqual(visibility.requests.count, beforeRegistration + 1)
+    }
+
+    func testEachIconAppearanceHasItsOwnRegistrationRetryBudget() {
+        let clock = ManualScheduler()
+        let engine = makeEngine(schedule: clock.schedule)
+        engine.collapse { _ in }
+        visibility.succeed(0, unmatched: ["com.hidden"])
+        for _ in 0..<29 {
+            let before = visibility.requests.count
+            clock.fire()
+            if visibility.requests.count > before {
+                visibility.succeed(visibility.requests.count - 1, unmatched: ["com.hidden"])
+            }
+        }
+        inventory.items.append(item("com.second", x: 1200))
+        clock.fire()
+        visibility.succeed(visibility.requests.count - 1, unmatched: ["com.hidden", "com.second"])
+        for _ in 0..<8 {
+            let before = visibility.requests.count
+            clock.fire()
+            XCTAssertEqual(visibility.requests.count, before + 1, "the later icon has its own budget")
+            if visibility.requests.count > before {
+                visibility.succeed(visibility.requests.count - 1, unmatched: ["com.second"])
+            }
+        }
+    }
+
     func testNewIconInAlreadyRunningAppIsDiscoveredWithoutLaunchNotification() {
         let clock = ManualScheduler()
         let engine = makeEngine(schedule: clock.schedule)
@@ -564,13 +657,17 @@ final class NativeVisibilityEngineTests: XCTestCase {
         let engine = makeEngine(schedule: clock.schedule)
         engine.collapse { _ in }
         visibility.succeed(0, unmatched: ["com.hidden"])
-        for index in 1...5 {
+        for index in 1...30 {
             clock.fire()
             XCTAssertEqual(visibility.requests.count, index + 1)
-            visibility.succeed(index, unmatched: ["com.hidden"])
+            if visibility.requests.count == index + 1 {
+                visibility.succeed(index, unmatched: ["com.hidden"])
+            }
         }
         clock.fire()
-        XCTAssertEqual(visibility.requests.count, 6)
+        XCTAssertEqual(visibility.requests.count, 31)
+        engine.applicationLaunched()
+        XCTAssertEqual(visibility.requests.count, 31, "an unrelated launch does not reset this appearance's budget")
         engine.expand()
         XCTAssertTrue(clock.pending.allSatisfy(\.isCancelled))
     }
@@ -618,6 +715,19 @@ final class NativeVisibilityEngineTests: XCTestCase {
         var read: MenuBarLayout?
         engine.readSections { read = $0 }
         XCTAssertEqual(read?.isCached, false)
+    }
+
+    func testUnrestrictedSheetDoesNotCallUnknownUnreadableAppsCachedPositions() {
+        let engine = makeEngine()
+        inventory.unreadableBundles = ["com.iconlessHelper"]
+        var read: MenuBarLayout?
+        engine.readSections { read = $0 }
+        XCTAssertEqual(read?.isCached, false, "no previously read positions were reused")
+        engine.collapse { _ in }
+        visibility.succeed(0)
+        engine.expand()
+        engine.readSections { read = $0 }
+        XCTAssertEqual(read?.isCached, false, "fully expanded Refresh has fresh readable positions")
     }
 
     func testEveryConcurrentCollapseCallerCompletesOnce() {
@@ -1168,7 +1278,8 @@ final class MenuBarAllowListBridgeTests: XCTestCase {
     }
 
     private func journal() throws -> AllowList.Journal {
-        try PropertyListDecoder().decode(AllowList.Journal.self, from: XCTUnwrap(defaults.data(forKey: journalKey)))
+        guard let data = defaults.data(forKey: journalKey) else { return [:] }
+        return try PropertyListDecoder().decode(AllowList.Journal.self, from: data)
     }
 
     private func bridge(_ store: Store, running: Set<String> = ["a"],
@@ -1248,6 +1359,30 @@ final class MenuBarAllowListBridgeTests: XCTestCase {
         XCTAssertFalse(defaults.bool(forKey: pendingKey))
         XCTAssertFalse(try journal().isEmpty)
         XCTAssertTrue(handle.invalidate())
+    }
+
+    func testSuccessfulQuitAndExpandRestoresRemoveDurableRecoveryKeys() throws {
+        let store = Store(entries(["a"]))
+        var clearedAtSynchronization = false
+        let bridge = bridge(store, synchronize: {
+            let keys = [self.journalKey, self.pendingKey, "allowInMenuBarSavedValues"]
+            if keys.allSatisfy({ self.defaults.object(forKey: $0) == nil }) {
+                clearedAtSynchronization = true
+                XCTAssertEqual(self.value(store)["isAllowed"] as? Bool, true)
+            }
+            return self.defaults.synchronize()
+        })
+        for restoringThroughHandle in [false, true] {
+            clearedAtSynchronization = false
+            let handle = try activate(bridge)
+            XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+            XCTAssertTrue(restoringThroughHandle ? handle.invalidate() : bridge.restoreAll())
+            XCTAssertTrue(clearedAtSynchronization, "cleanup must be synchronized before restore returns")
+            let durable = UserDefaults(suiteName: suite)!
+            for key in [journalKey, pendingKey, "allowInMenuBarSavedValues"] {
+                XCTAssertNil(durable.object(forKey: key), key)
+            }
+        }
     }
 
     func testJournalSynchronizationFailureNeverWritesSwitches() {

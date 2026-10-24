@@ -282,9 +282,17 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
     }
 
     private func persist(_ journal: AllowList.Journal, pending: Bool) throws {
-        defaults.set(try PropertyListEncoder().encode(journal), forKey: Self.journalKey)
-        defaults.set(journal.mapValues(\.original), forKey: Self.savedValuesKey)
-        defaults.set(pending, forKey: Self.pendingKey)
+        if journal.isEmpty && !pending {
+            // Successful restoration must durably remove recovery ownership
+            // before termination can leave an obsolete journal on disk.
+            defaults.removeObject(forKey: Self.journalKey)
+            defaults.removeObject(forKey: Self.savedValuesKey)
+            defaults.removeObject(forKey: Self.pendingKey)
+        } else {
+            defaults.set(try PropertyListEncoder().encode(journal), forKey: Self.journalKey)
+            defaults.set(journal.mapValues(\.original), forKey: Self.savedValuesKey)
+            defaults.set(pending, forKey: Self.pendingKey)
+        }
         guard synchronizeJournal() else { throw NSError(domain: "AllowInMenuBar.Journal", code: 1) }
     }
 
