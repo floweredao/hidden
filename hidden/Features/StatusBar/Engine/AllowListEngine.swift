@@ -154,7 +154,9 @@ final class AllowListEngine: MenuBarEngine {
         items?.separatorItem.length = 20
         items?.alwaysHiddenItem?.length = 20
         // Unknown boundaries must get their first layout before they can disappear.
-        items?.separatorItem.isVisible = !collapsed || separatorFrame == nil
+        // Until the first inventory lands the | also stays, because removing it shifts
+        // the icons beside it and the inventory would classify them against a stale boundary.
+        items?.separatorItem.isVisible = !collapsed || separatorFrame == nil || !hasSnapshot
         items?.alwaysHiddenItem?.isVisible = !alwaysHiddenPlacementKnown || (!collapsed && alwaysHiddenShown)
         lastOffsets = relativeOffsets()
     }
@@ -223,6 +225,7 @@ final class AllowListEngine: MenuBarEngine {
                 for bundle in self.hidden { fresh[bundle] = self.sections[bundle] }
                 self.sections = fresh
                 self.hasSnapshot = true
+                self.updateOwnItems()
                 self.writeDesiredState()
                 if self.snapshotRequested {
                     self.snapshotRequested = false

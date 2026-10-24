@@ -390,7 +390,9 @@ final class AllowListEngineTests: XCTestCase {
     func testCollapseDoesNotCancelPendingLaunchSnapshot() {
         let engine = makeEngine()
         engine.apply(collapsed: true, alwaysHiddenShown: false)
+        XCTAssertTrue(items.separatorItem.isVisible, "the boundary stays until the first inventory is read against it")
         snapshot(engine)
+        XCTAssertFalse(items.separatorItem.isVisible)
         XCTAssertEqual(bridge.requests.count, 1)
         complete(0)
     }
