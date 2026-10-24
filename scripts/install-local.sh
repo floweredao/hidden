@@ -49,7 +49,9 @@ codesign --verify --deep --strict "$APP" || fail "codesign verification failed"
 
 step "Backing up preferences to $BACKUP_DIR"
 mkdir -p "$BACKUP_DIR"
-defaults export "$BUNDLE_ID" "$BACKUP_DIR/$BUNDLE_ID-$STAMP.plist"
+# Name the file, not the bundle id: `defaults` resolves a bundle id to a leftover App Store
+# sandbox container when one exists, while the installed direct build reads ~/Library/Preferences.
+defaults export "$HOME/Library/Preferences/$BUNDLE_ID" "$BACKUP_DIR/$BUNDLE_ID-$STAMP.plist"
 
 if pgrep -x "Hidden Bar" >/dev/null; then
   step "Quitting the running Hidden Bar"
