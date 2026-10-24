@@ -48,6 +48,7 @@ Steps to view always hidden icons:
 
 /* Settings picture: the arrow is the boundary (macOS 27 native hiding) */
 "In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them, or use Menu Bar Items… below." = "In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them, or use Menu Bar Items… below.";
+"Icons to the left of the first | are always hidden." = "Icons to the left of the first | are always hidden.";
 "In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them." = "In your Mac's menu bar, hold ⌘ and drag icons to the left of the arrow to hide them.";
 
 /* Why hiding does not work */
