@@ -1,18 +1,5 @@
-//
-//  MenuBarEngineTests.swift
-//  HiddenBarTests
-//
-//  Copyright © 2026 Dwarves Foundation. All rights reserved.
-//
-
 import AppKit
 import XCTest
-
-// The engine sources are compiled straight into this bundle (no host app), so
-// the tests never put items in the real menu bar, never need Accessibility, and
-// never touch the private visibility API.
-
-// MARK: - Fakes
 
 private final class FakeItems: MenuBarItemProvider {
     private let bar = NSStatusBar()
@@ -24,6 +11,9 @@ private final class FakeItems: MenuBarItemProvider {
         toggleItem = bar.statusItem(withLength: NSStatusItem.variableLength)
         separatorItem = bar.statusItem(withLength: 1)
         alwaysHiddenItem = bar.statusItem(withLength: 20)
+        toggleItem.isVisible = true
+        separatorItem.isVisible = true
+        alwaysHiddenItem?.isVisible = true
     }
 }
 
@@ -86,7 +76,7 @@ private final class FakeVisibility: NativeVisibilityProviding {
 
     var isAvailable = true
     var requests: [Request] = []
-    var unavailableReason: HidingUnavailableReason = .notSupported
+    var unavailableReason: HidingUnavailableReason = .fileAccessNeeded
     var accessRequests = 0
     var restoresSuccessfully = true
     var restores = 0
@@ -113,6 +103,10 @@ private final class FakeVisibility: NativeVisibilityProviding {
 
     @discardableResult
     func succeed(_ index: Int, unmatched: Set<String> = []) -> FakeAssertion {
+        guard requests.indices.contains(index) else {
+            XCTFail("No activation request at index \(index)")
+            return FakeAssertion(allowed: [])
+        }
         let assertion = FakeAssertion(allowed: requests[index].bundles)
         assertion.unmatchedHiddenBundleIdentifiers = unmatched
         requests[index].completion(.success(assertion))
@@ -155,8 +149,6 @@ private func item(_ bundle: String?, x: CGFloat, width: CGFloat = 24) -> MenuBar
 // (the separator for the resolver, the arrow for the native engine).
 private let alwaysHiddenSeparator = CGRect(x: 1000, y: 0, width: 20, height: 24)
 private let separator = CGRect(x: 1300, y: 0, width: 20, height: 24)
-
-// MARK: - Layout resolver
 
 final class MenuBarLayoutResolverTests: XCTestCase {
     func testLTRSectionsFollowSeparators() {
@@ -222,1159 +214,376 @@ final class MenuBarLayoutResolverTests: XCTestCase {
     }
 }
 
-// MARK: - Native engine
-
-final class NativeVisibilityEngineTests: XCTestCase {
-    func testMatchedHiddenIconReappearancesAreNotCapped() {
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        for _ in 0..<40 {
-            inventory.items.removeAll { $0.bundleIdentifier == "com.hidden" }
-            inventory.noIconBundles = ["com.hidden"]
-            engine.applicationLaunched()
-            inventory.noIconBundles = []
-            inventory.items.append(item("com.hidden", x: 1100))
-            let before = visibility.requests.count
-            engine.applicationLaunched()
-            if visibility.requests.count > before {
-                visibility.succeed(visibility.requests.count - 1)
-            }
-        }
-        XCTAssertEqual(visibility.requests.count, 41, "every matched visible reappearance remains a hidden target")
-        XCTAssertEqual(engine.state, .collapsed)
-        engine.expand()
-        engine.collapse { _ in }
-        XCTAssertEqual(visibility.requests.count, 42)
-    }
-
-    func testUnmatchedRegistrationBudgetRestartsForANewAppearance() {
-        let clock = ManualScheduler()
-        let engine = makeEngine(schedule: clock.schedule)
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        for _ in 0..<30 {
-            inventory.items.removeAll { $0.bundleIdentifier == "com.hidden" }
-            engine.applicationLaunched()
-            inventory.items.append(item("com.hidden", x: 1100))
-            engine.applicationLaunched()
-            visibility.succeed(visibility.requests.count - 1)
-        }
-        XCTAssertEqual(visibility.requests.count, 31)
-        inventory.items.removeAll { $0.bundleIdentifier == "com.hidden" }
-        inventory.noIconBundles = ["com.hidden"]
-        engine.applicationLaunched()
-        inventory.noIconBundles = []
-        inventory.items.append(item("com.hidden", x: 1100))
-        engine.applicationLaunched()
-        XCTAssertEqual(visibility.requests.count, 32, "a new appearance can register a new entry")
-        if visibility.requests.count == 32 {
-            visibility.succeed(31, unmatched: ["com.hidden"])
-            for index in 0..<30 {
-                clock.fire()
-                XCTAssertEqual(visibility.requests.count, 33 + index, "each unmatched appearance gets thirty retries")
-                visibility.succeed(visibility.requests.count - 1, unmatched: ["com.hidden"])
-            }
-            clock.fire()
-            XCTAssertEqual(visibility.requests.count, 62, "unmatched retries remain bounded per appearance")
-        }
-    }
-
-    func testRealBridgeChurnPreservesOriginalsAndCompletesRestore() throws {
-        let suite = "HiddenBarTests.EngineChurn.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        func key(_ bundle: String) -> NSDictionary { ["bundle": ["_0": bundle]] }
-        func value(_ bundle: String, allowed: Bool) -> NSMutableDictionary {
-            ["isAllowed": allowed, "menuItemLocations": NSMutableArray(object: key(bundle))]
-        }
-        let adhoc: NSDictionary = ["adhocBinary": ["_0": ["relative": "file:///tmp/engine-churn/diagnostic"]]]
-        var stored = NSMutableArray(array: [
-            key("com.hidden"), value("com.hidden", allowed: true),
-            adhoc, value("com.hidden", allowed: true),
-            key("com.always"), value("com.always", allowed: false)
-        ])
-        func copy(_ entries: NSMutableArray) throws -> NSMutableArray {
-            let data = try PropertyListSerialization.data(fromPropertyList: entries, format: .binary, options: 0)
-            return try XCTUnwrap(PropertyListSerialization.propertyList(from: data, options: .mutableContainersAndLeaves,
-                                                                       format: nil) as? NSMutableArray)
-        }
-        func journal() throws -> AllowList.Journal {
-            guard let data = defaults.data(forKey: "allowInMenuBarJournal") else { return [:] }
-            return try PropertyListDecoder().decode(AllowList.Journal.self, from: data)
-        }
-        let hiddenID = try XCTUnwrap(AllowList.identity(key("com.hidden")))
-        let adhocID = try XCTUnwrap(AllowList.identity(adhoc))
-        var writes = 0
-        let bridge = MenuBarAllowListBridge(defaults: defaults,
-            readEntries: { try copy(stored) },
-            writeEntries: { entries in
-                writes += 1
-                stored = try copy(entries)
-            })
-        let engine = NativeVisibilityEngine(items: items, inventory: inventory, visibility: bridge,
-                                           ownBundleIdentifier: "com.dwarvesv.minimalbar",
-                                           itemFrame: { _ in separator }, isLTR: { true },
-                                           launchNotifications: launches,
-                                           schedule: { _, body in DispatchWorkItem(block: body) })
-        engine.collapse { XCTAssertEqual($0, .collapsed) }
-        XCTAssertEqual(engine.layout?.sections["com.hidden"], .hidden)
-        XCTAssertEqual(writes, 1)
-        for _ in 0..<40 {
-            inventory.items.removeAll { $0.bundleIdentifier == "com.hidden" }
-            engine.applicationLaunched()
-            (stored[1] as! NSMutableDictionary)["isAllowed"] = true
-            inventory.items.append(item("com.hidden", x: 1100))
-            engine.applicationLaunched()
-            XCTAssertEqual((stored[1] as! NSDictionary)["isAllowed"] as? Bool, false)
-            XCTAssertEqual(try journal()[hiddenID]?.original, true)
-            XCTAssertEqual(try journal()[adhocID]?.original, true)
-            let before = writes
-            inventory.items.removeAll { $0.bundleIdentifier == "com.hidden" }
-            engine.applicationLaunched()
-            inventory.items.append(item("com.hidden", x: 1100))
-            engine.applicationLaunched()
-            XCTAssertEqual(writes, before, "an unchanged switch must not cause an external array write")
-        }
-        XCTAssertEqual(writes, 41, "only the initial collapse and forty observed ON entries are written")
-        let missingKey = stored[2]
-        let missingValue = stored[3]
-        stored.removeObjects(in: NSRange(location: 2, length: 2))
-        engine.expand()
-        XCTAssertEqual(engine.unavailableReason, .restoreFailed)
-        XCTAssertEqual(try journal()[adhocID]?.original, true)
-        stored.add(missingKey)
-        stored.add(missingValue)
-        engine.expand()
-        XCTAssertEqual(engine.state, .expanded)
-        XCTAssertNil(engine.unavailableReason)
-        XCTAssertTrue(try journal().isEmpty)
-        XCTAssertEqual((stored[1] as! NSDictionary)["isAllowed"] as? Bool, true)
-        XCTAssertEqual((stored[3] as! NSDictionary)["isAllowed"] as? Bool, false)
-        XCTAssertEqual((stored[5] as! NSDictionary)["isAllowed"] as? Bool, true)
-    }
-
-    func testHiddenSectionSeparatorReturnsOnlyAfterRestorationCompletes() {
-        let engine = makeEngine()
-        engine.expand()
-        XCTAssertTrue(items.separatorItem.isVisible)
-        engine.collapse { _ in }
-        XCTAssertFalse(items.separatorItem.isVisible)
-        let handle = visibility.succeed(0)
-        handle.onInvalidate = { XCTAssertFalse(self.items.separatorItem.isVisible) }
-        engine.expand()
-        XCTAssertTrue(items.separatorItem.isVisible)
-    }
-
-    func testHiddenSectionSeparatorStaysPresentWhenOnlyAlwaysHiddenIsOff() {
-        let engine = makeEngine()
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        visibility.succeed(0)
-        XCTAssertTrue(items.separatorItem.isVisible)
-        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
-    }
-
-    func testLaunchHoldsSeparatorAbsentUntilFirstRestoreAndNeverZeroLength() {
-        items.separatorItem.length = 0
-        let engine = makeEngine()
-        XCTAssertFalse(items.separatorItem.isVisible)
-        XCTAssertEqual(items.separatorItem.length, 20)
-        engine.expand()
-        XCTAssertTrue(items.separatorItem.isVisible)
-        XCTAssertEqual(items.separatorItem.length, 20)
-    }
-
-    func testIdleReconcileDoesNotScheduleAnotherOneSecondPass() {
-        let clock = ManualScheduler()
-        let engine = makeEngine(schedule: clock.schedule)
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        clock.fire()
-        XCTAssertTrue(clock.pending.allSatisfy(\.isCancelled) || clock.delays.last! > 1)
-    }
-
-    func testRevokedAccessibilityKeepsCollapsedAssertion() {
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        let handle = visibility.succeed(0)
-        inventory.isAuthorized = false
-        engine.applicationLaunched()
-        XCTAssertEqual(visibility.requests.count, 1)
-        XCTAssertFalse(handle.isInvalidated)
-        XCTAssertEqual(engine.state, .collapsed)
-        XCTAssertEqual(engine.unavailableReason, .accessibilityNeeded)
-    }
-
-    func testMissingArrowKeepsCollapsedAssertion() {
-        var readable = true
-        let engine = NativeVisibilityEngine(items: items, inventory: inventory, visibility: visibility,
-                                           itemFrame: { _ in readable ? separator : nil },
-                                           launchNotifications: launches,
-                                           schedule: { _, body in DispatchWorkItem(block: body) })
-        engine.collapse { _ in }
-        let handle = visibility.succeed(0)
-        readable = false
-        engine.applicationLaunched()
-        XCTAssertEqual(visibility.requests.count, 1)
-        XCTAssertFalse(handle.isInvalidated)
-        XCTAssertEqual(engine.unavailableReason, .boundaryUnreadable)
-    }
-
-    func testFailedReconcileNotifiesControllerWithFinalStateAndProblem() {
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        let handle = visibility.succeed(0)
-        handle.restoresSuccessfully = false
-        var observations: [(MenuBarEngineState, HidingUnavailableReason?)] = []
-        engine.onStateChange = { observations.append((engine.state, engine.unavailableReason)) }
-        inventory.items.append(item("com.new", x: 1200))
-        engine.applicationLaunched()
-        visibility.fail(1)
-        XCTAssertEqual(observations.last?.0, .unavailable)
-        XCTAssertEqual(observations.last?.1, .restoreFailed)
-        engine.onStateChange = nil
-    }
-
-    func testUnreadableHeldBundleStaysHidden() {
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        inventory.items.removeAll { $0.bundleIdentifier == "com.hidden" }
-        inventory.unreadableBundles = ["com.hidden"]
-        inventory.items.append(item("com.new", x: 1500))
-        engine.applicationLaunched()
-        XCTAssertEqual(visibility.requests.last?.hidden.contains("com.hidden"), true)
-        XCTAssertEqual(visibility.requests.last?.bundles.contains("com.hidden"), false)
-    }
-
-    func testEnablingAlwaysHiddenWhileUnavailableRestoresSeparatorLength() {
-        let engine = makeEngine()
-        visibility.isAvailable = false
-        engine.collapse { _ in }
-        items.alwaysHiddenItem?.length = 0
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
-        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, true)
-    }
-
-    func testEnablingAlwaysHiddenWhileCalibratingRestoresSeparatorLength() {
-        let engine = makeEngine()
-        inventory.deferred = true
-        engine.collapse { _ in }
-        items.alwaysHiddenItem?.length = 0
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
-    }
-
-    func testRegistrationRetryAfterReconcileHasZeroDelay() {
-        let clock = ManualScheduler()
-        let engine = makeEngine(schedule: clock.schedule)
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        inventory.items.append(item("com.new", x: 1200))
-        clock.fire()
-        visibility.succeed(1, unmatched: ["com.new"])
-        XCTAssertEqual(clock.delays.last, 0)
-    }
-
-    private var items: FakeItems!
-    private var inventory: FakeInventory!
-    private var visibility: FakeVisibility!
-    private let launches = NotificationCenter()
-
-    override func setUp() {
-        super.setUp()
-        items = FakeItems()
-        inventory = FakeInventory()
-        inventory.items = [item("com.always", x: 900), item("com.hidden", x: 1100), item("com.visible", x: 1400)]
-        visibility = FakeVisibility()
-    }
-
-    private func makeEngine(keepsIndicatorsWhenExpanded: @escaping () -> Bool = { false },
-                            schedule: @escaping (TimeInterval, @escaping () -> Void) -> DispatchWorkItem = { _, body in DispatchWorkItem(block: body) }) -> NativeVisibilityEngine {
-        let items = self.items!
-        return NativeVisibilityEngine(items: items, inventory: inventory, visibility: visibility,
-                                      ownBundleIdentifier: "com.dwarvesv.minimalbar",
-                                      itemFrame: { $0 === items.toggleItem ? separator : alwaysHiddenSeparator },
-                                      isLTR: { true },
-                                      launchNotifications: launches,
-                                      keepsIndicatorsWhenExpanded: keepsIndicatorsWhenExpanded,
-                                      schedule: schedule)
-    }
-
-    // macOS hides its indicators (Focus, the mic/camera capsule) while any
-    // restriction is held, so keeping them means expanded holds none, even with
-    // the always-hidden section hidden; collapsing still hides as before.
-    func testKeepingIndicatorsExpandedHoldsNoRestriction() {
-        var keepsIndicators = true
-        let engine = makeEngine(keepsIndicatorsWhenExpanded: { keepsIndicators })
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        XCTAssertTrue(visibility.requests.isEmpty)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 20, "its section shows, so its separator does")
-
-        engine.collapse { _ in }
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.visible"])
-        let collapsed = visibility.succeed(visibility.requests.count - 1)
-        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
-
-        engine.expand()
-        XCTAssertTrue(collapsed.isInvalidated)
-        XCTAssertEqual(visibility.requests.count, 1)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
-
-        // Turned off while expanded: the always-hidden section is hidden again.
-        keepsIndicators = false
-        engine.reapplySections { _ in }
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible"])
-    }
-
-    func testCollapseKeepsOnlyVisibleAppsAndSystemItems() {
-        let engine = makeEngine()
-        var results: [CollapseResult] = []
-        engine.collapse { results.append($0) }
-
-        XCTAssertEqual(engine.state, .calibrating)
-        XCTAssertEqual(visibility.requests.first?.bundles, ["com.dwarvesv.minimalbar", "com.visible"])
-        XCTAssertEqual(visibility.requests.first?.systemItems, NativeVisibilityEngine.systemItemsToKeep)
-        XCTAssertFalse(items.separatorItem.isVisible, "remove the marker before switching its neighbours off")
-
-        visibility.succeed(0)
-        XCTAssertEqual(engine.state, .collapsed)
-        XCTAssertEqual(results, [.collapsed])
-
-        engine.expand()
-        XCTAssertTrue(items.separatorItem.isVisible)
-    }
-
-    func testAlwaysHiddenSeparatorFollowsTheSectionSetting() {
-        let engine = makeEngine()
-        engine.updateAlwaysHiddenSection(enabled: false, separatorHidden: false)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
-
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
-
-        engine.collapse { _ in }
-        visibility.succeed(visibility.requests.count - 1)
-        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
-
-        engine.expand()
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
-    }
-
-    func testUnavailableAPIFailsOpen() {
-        visibility.isAvailable = false
-        let engine = makeEngine()
-        var result: CollapseResult?
-        engine.collapse { result = $0 }
-
-        XCTAssertEqual(result, .unavailable)
-        XCTAssertEqual(engine.state, .unavailable)
-        XCTAssertTrue(visibility.requests.isEmpty)
-    }
-
-    func testMissingAccessibilityAsksAndRetriesLater() {
-        inventory.isAuthorized = false
-        let engine = makeEngine()
-        var results: [CollapseResult] = []
-        engine.collapse { results.append($0) }
-
-        XCTAssertEqual(results, [.unavailable])
-        XCTAssertEqual(inventory.authorizationRequests, 1)
-        XCTAssertTrue(visibility.requests.isEmpty, "never guess which icons to hide")
-
-        inventory.isAuthorized = true
-        engine.collapse { results.append($0) }
-        XCTAssertEqual(visibility.requests.count, 1, "works once the permission is granted")
-    }
-
-    func testActivationFailureReportsUnavailable() {
-        let engine = makeEngine()
-        var result: CollapseResult?
-        engine.collapse { result = $0 }
-        visibility.fail(0)
-
-        XCTAssertEqual(result, .unavailable)
-        XCTAssertEqual(engine.state, .expanded)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 0, "the always-hidden separator only shows when enabled")
-    }
-
-    func testExpandDropsTheRestriction() {
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        let collapsed = visibility.succeed(0)
-
-        engine.expand()
-        XCTAssertTrue(collapsed.isInvalidated)
-        XCTAssertEqual(engine.state, .expanded)
-        XCTAssertEqual(visibility.requests.count, 1)
-    }
-
-    func testExpandKeepsAlwaysHiddenSectionHiddenAndSwapsWithoutFlashing() {
-        let engine = makeEngine()
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        // Expanded with separators hidden: everything but always-hidden is shown.
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible"])
-        visibility.succeed(visibility.requests.count - 1)
-
-        engine.collapse { _ in }
-        let collapseIndex = visibility.requests.count - 1
-        XCTAssertEqual(visibility.requests[collapseIndex].bundles, ["com.dwarvesv.minimalbar", "com.visible"])
-        let collapsed = visibility.succeed(collapseIndex)
-
-        var newIsActiveWhenOldDropped = false
-        collapsed.onInvalidate = { newIsActiveWhenOldDropped = true }
-        engine.expand()
-        let expandIndex = visibility.requests.count - 1
-        XCTAssertEqual(visibility.requests[expandIndex].bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible"])
-        XCTAssertFalse(collapsed.isInvalidated, "the old restriction stays until the new one is active")
-        visibility.succeed(expandIndex)
-        XCTAssertTrue(newIsActiveWhenOldDropped)
-    }
-
-    func testRestrictedReadPreservesCachedSections() {
-        let engine = makeEngine()
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        visibility.succeed(visibility.requests.count - 1)
-        engine.collapse { _ in }
-        visibility.succeed(visibility.requests.count - 1)
-        let snapshotsBefore = inventory.snapshots
-
-        // Hidden items would report stale positions now; the cached layout is used.
-        inventory.items = [item("com.visible", x: 100)]
-        engine.expand()
-        XCTAssertEqual(inventory.snapshots, snapshotsBefore + 1)
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible"])
-    }
-
-    // Hidden and always-hidden sections cannot be compared with a newer arrow.
-    func testPartialRestrictionKeepsHiddenSectionsAcrossCoordinateChanges() {
-        let engine = makeEngine()
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        visibility.succeed(visibility.requests.count - 1)
-
-        inventory.items = [item("com.always", x: 1400), item("com.hidden", x: 1400), item("com.visible", x: 1100)]
-        engine.collapse { _ in }
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.visible"])
-        XCTAssertEqual(visibility.requests.last?.hidden, ["com.always", "com.hidden"])
-    }
-
-    // Hiding the always-hidden section takes its separator with it, as it did
-    // before macOS 27; it only goes once the icons are actually hidden, and does
-    // not flash back while collapsing or expanding.
-    func testAlwaysHiddenSeparatorHidesWithItsSection() {
-        let engine = makeEngine()
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
-
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false, "remove it before its neighbours are switched off")
-        visibility.succeed(visibility.requests.count - 1)
-        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
-
-        engine.collapse { _ in }
-        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
-        visibility.succeed(visibility.requests.count - 1)
-
-        engine.expand()
-        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
-        visibility.succeed(visibility.requests.count - 1)
-        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
-
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
-    }
-
-    func testAlwaysHiddenSeparatorStaysWhenItsSectionCannotBeHidden() {
-        let engine = makeEngine()
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        visibility.fail(visibility.requests.count - 1)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
-    }
-
-    func testAlwaysHiddenSeparatorEnabledWhileCollapsedIsAbsent() {
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        visibility.succeed(visibility.requests.count - 1)
-
-        items.alwaysHiddenItem?.length = 20
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
-        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
-    }
-
-    func testDisablingTheSectionRevealsItsApps() {
-        let engine = makeEngine()
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        let hidingAlwaysHidden = visibility.succeed(visibility.requests.count - 1)
-
-        engine.updateAlwaysHiddenSection(enabled: false, separatorHidden: true)
-        XCTAssertTrue(hidingAlwaysHidden.isInvalidated)
-    }
-
-    func testIconlessRunningParentsAreNotKeptAndNewVisibleIconsAreKept() {
-        inventory.noIconBundles = ["com.early"]
-        let engine = makeEngine()
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible"])
-        visibility.succeed(visibility.requests.count - 1)
-
-        inventory.items.append(item("com.late", x: 1500))
-        let before = visibility.requests.count
-        launches.post(name: NSWorkspace.didLaunchApplicationNotification, object: nil)
-        XCTAssertEqual(visibility.requests.count, before + 1)
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.late", "com.visible"])
-    }
-
-    func testLaunchWithoutAnIconDoesNotChangeTargets() {
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        visibility.succeed(visibility.requests.count - 1)
-        let before = visibility.requests.count
-        launches.post(name: NSWorkspace.didLaunchApplicationNotification, object: nil)
-        XCTAssertEqual(visibility.requests.count, before)
-        XCTAssertEqual(engine.state, .collapsed)
-    }
-
-    func testExpandDuringActivationDropsTheLateResult() {
-        let engine = makeEngine()
-        var results: [CollapseResult] = []
-        engine.collapse { results.append($0) }
-
-        engine.expand()
-        let late = visibility.succeed(0)
-
-        XCTAssertTrue(late.isInvalidated, "a restriction nobody wants any more is released")
-        XCTAssertEqual(engine.state, .expanded)
-        XCTAssertEqual(results, [.cancelled])
-    }
-
-    func testDisplayChangeKeepsTheBarCollapsed() {
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        let collapsed = visibility.succeed(0)
-
-        engine.invalidateLayout()
-        XCTAssertEqual(engine.state, .collapsed)
-        XCTAssertFalse(collapsed.isInvalidated)
-    }
-
-    func testCollapsedLaunchUsesLiveFrameAndRetriesUnmatchedRegistration() {
-        let clock = ManualScheduler()
-        let engine = makeEngine(schedule: clock.schedule)
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        inventory.items.append(item("com.new", x: 1200))
-        launches.post(name: NSWorkspace.didLaunchApplicationNotification, object: nil)
-        XCTAssertEqual(visibility.requests[1].hidden, ["com.always", "com.hidden", "com.new"])
-        visibility.succeed(1, unmatched: ["com.new"])
-        clock.fire()
-        XCTAssertEqual(visibility.requests[2].hidden, visibility.requests[1].hidden)
-        visibility.succeed(2)
-        clock.fire()
-        XCTAssertEqual(visibility.requests.count, 3, "matched targets do not cause repeated writes")
-        XCTAssertEqual(engine.state, .collapsed)
-    }
-
-    func testLaunchDuringCalibrationRetriesPreviouslyUnreadableIcon() {
-        let clock = ManualScheduler()
-        inventory.unreadableBundles = ["com.late"]
-        let engine = makeEngine(schedule: clock.schedule)
-        engine.collapse { _ in }
-        inventory.unreadableBundles = []
-        inventory.items.append(item("com.late", x: 1200))
-        launches.post(name: NSWorkspace.didLaunchApplicationNotification, object: nil)
-        XCTAssertEqual(engine.state, .calibrating)
-        visibility.succeed(0)
-        clock.fire()
-        XCTAssertEqual(engine.layout?.sections["com.late"], .hidden)
-        XCTAssertEqual(visibility.requests.last?.hidden.contains("com.late"), true)
-    }
-
-    func testIconFirstReadWhileRestrictedCanSettleOnHiddenSide() {
-        let clock = ManualScheduler()
-        let engine = makeEngine(schedule: clock.schedule)
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        inventory.items.append(item("com.settling", x: 1400))
-        clock.fire()
-        visibility.succeed(1)
-        inventory.items[inventory.items.count - 1] = item("com.settling", x: 1200)
-        clock.fire()
-        XCTAssertEqual(engine.layout?.sections["com.settling"], .hidden)
-        XCTAssertEqual(visibility.requests.last?.hidden.contains("com.settling"), true)
-    }
-
-    func testHiddenIconReappearanceRetargetsEvenWhenTargetsAreUnchanged() {
-        let clock = ManualScheduler()
-        let engine = makeEngine(schedule: clock.schedule)
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        inventory.items.removeAll { $0.bundleIdentifier == "com.hidden" }
-        inventory.noIconBundles = ["com.hidden"]
-        clock.fire()
-        XCTAssertEqual(visibility.requests.count, 1)
-        inventory.noIconBundles = []
-        inventory.items.append(item("com.hidden", x: 1200))
-        clock.fire()
-        XCTAssertEqual(visibility.requests.count, 2, "a new appearance can have a default-on entry")
-    }
-
-    func testEntryRegisteringAfterFivePollsStillGetsHidden() {
-        let clock = ManualScheduler()
-        let engine = makeEngine(schedule: clock.schedule)
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        inventory.items.append(item("com.lateEntry", x: 1200))
-        for _ in 0..<9 {
-            let before = visibility.requests.count
-            clock.fire()
-            if visibility.requests.count > before {
-                visibility.succeed(visibility.requests.count - 1, unmatched: ["com.lateEntry"])
-            }
-        }
-        let beforeRegistration = visibility.requests.count
-        clock.fire()
-        XCTAssertEqual(visibility.requests.count, beforeRegistration + 1,
-                       "registration at nine seconds must not outlive the retry budget")
-        if visibility.requests.count > beforeRegistration {
-            visibility.succeed(visibility.requests.count - 1)
-        }
-        clock.fire()
-        XCTAssertEqual(visibility.requests.count, beforeRegistration + 1)
-    }
-
-    func testEachIconAppearanceHasItsOwnRegistrationRetryBudget() {
-        let clock = ManualScheduler()
-        let engine = makeEngine(schedule: clock.schedule)
-        engine.collapse { _ in }
-        visibility.succeed(0, unmatched: ["com.hidden"])
-        for _ in 0..<29 {
-            let before = visibility.requests.count
-            clock.fire()
-            if visibility.requests.count > before {
-                visibility.succeed(visibility.requests.count - 1, unmatched: ["com.hidden"])
-            }
-        }
-        inventory.items.append(item("com.second", x: 1200))
-        clock.fire()
-        visibility.succeed(visibility.requests.count - 1, unmatched: ["com.hidden", "com.second"])
-        for _ in 0..<8 {
-            let before = visibility.requests.count
-            clock.fire()
-            XCTAssertEqual(visibility.requests.count, before + 1, "the later icon has its own budget")
-            if visibility.requests.count > before {
-                visibility.succeed(visibility.requests.count - 1, unmatched: ["com.second"])
-            }
-        }
-    }
-
-    func testNewIconInAlreadyRunningAppIsDiscoveredWithoutLaunchNotification() {
-        let clock = ManualScheduler()
-        let engine = makeEngine(schedule: clock.schedule)
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        inventory.noIconBundles = ["com.late"]
-        clock.fire()
-        XCTAssertEqual(visibility.requests.count, 1)
-        inventory.noIconBundles = []
-        inventory.items.append(item("com.late", x: 1200))
-        clock.fire()
-        XCTAssertTrue(visibility.requests[1].hidden.contains("com.late"))
-    }
-
-    func testCollapsedNewIconRightOfArrowIsNeverHidden() {
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        inventory.items.append(item("com.new", x: 1500))
-        engine.applicationLaunched()
-        XCTAssertFalse(visibility.requests[1].hidden.contains("com.new"))
-        XCTAssertTrue(visibility.requests[1].bundles.contains("com.new"))
-    }
-
-    func testPartialRestrictionClassifiesNewIconAgainstLiveHiddenSection() {
-        let engine = makeEngine()
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        visibility.succeed(0)
-        inventory.items.append(item("com.newAlways", x: 1050))
-        inventory.items.append(item("com.newHidden", x: 1200))
-        inventory.items.append(item("com.newVisible", x: 1500))
-        engine.applicationLaunched()
-        XCTAssertEqual(visibility.requests[1].hidden, ["com.always", "com.newAlways"])
-        XCTAssertTrue(visibility.requests[1].bundles.contains("com.newHidden"))
-        XCTAssertTrue(visibility.requests[1].bundles.contains("com.newVisible"))
-    }
-
-    func testUnmatchedRetriesAreBoundedAndExpandCancelsDiscovery() {
-        let clock = ManualScheduler()
-        let engine = makeEngine(schedule: clock.schedule)
-        engine.collapse { _ in }
-        visibility.succeed(0, unmatched: ["com.hidden"])
-        for index in 1...30 {
-            clock.fire()
-            XCTAssertEqual(visibility.requests.count, index + 1)
-            if visibility.requests.count == index + 1 {
-                visibility.succeed(index, unmatched: ["com.hidden"])
-            }
-        }
-        clock.fire()
-        XCTAssertEqual(visibility.requests.count, 31)
-        engine.applicationLaunched()
-        XCTAssertEqual(visibility.requests.count, 31, "an unrelated launch does not reset this appearance's budget")
-        engine.expand()
-        XCTAssertTrue(clock.pending.allSatisfy(\.isCancelled))
-    }
-
-    func testUnreadableAppKeepsSectionButIsNeverNewlyHidden() {
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        engine.expand()
-        inventory.items.removeAll { $0.bundleIdentifier == "com.hidden" }
-        inventory.unreadableBundles = ["com.hidden", "com.unknown"]
-        engine.collapse { _ in }
-        XCTAssertEqual(engine.layout?.sections["com.hidden"], .hidden)
-        XCTAssertEqual(engine.layout?.sections["com.unknown"], .visible)
-        XCTAssertFalse(visibility.requests[1].hidden.contains("com.hidden"))
-        XCTAssertTrue(visibility.requests[1].bundles.contains("com.hidden"))
-        XCTAssertTrue(visibility.requests[1].bundles.contains("com.unknown"))
-        XCTAssertEqual(engine.layout?.isCached, true)
-    }
-
-    func testIconlessRunningAppIsNeitherHiddenNorKept() {
-        inventory.noIconBundles = ["com.parent"]
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        XCTAssertFalse(visibility.requests[0].hidden.contains("com.parent"))
-        XCTAssertFalse(visibility.requests[0].bundles.contains("com.parent"))
-    }
-
-    func testSheetReportsCachedSectionsAndNewIconsWhileCollapsed() {
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        inventory.items = [item("com.hidden", x: 1600), item("com.new", x: 1200)]
-        var read: MenuBarLayout?
-        engine.readSections { read = $0 }
-        XCTAssertEqual(read?.isCached, true)
-        XCTAssertEqual(read?.sections["com.hidden"], .hidden)
-        XCTAssertEqual(read?.sections["com.new"], .hidden)
-        XCTAssertEqual(visibility.requests.count, 1, "the sheet must not switch apps")
-        XCTAssertNil(engine.layout?.sections["com.new"], "the sheet does not mutate engine state")
-    }
-
-    func testUnrestrictedSheetReportsFreshPositions() {
-        let engine = makeEngine()
-        var read: MenuBarLayout?
-        engine.readSections { read = $0 }
-        XCTAssertEqual(read?.isCached, false)
-    }
-
-    func testUnrestrictedSheetDoesNotCallUnknownUnreadableAppsCachedPositions() {
-        let engine = makeEngine()
-        inventory.unreadableBundles = ["com.iconlessHelper"]
-        var read: MenuBarLayout?
-        engine.readSections { read = $0 }
-        XCTAssertEqual(read?.isCached, false, "no previously read positions were reused")
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        engine.expand()
-        engine.readSections { read = $0 }
-        XCTAssertEqual(read?.isCached, false, "fully expanded Refresh has fresh readable positions")
-    }
-
-    func testEveryConcurrentCollapseCallerCompletesOnce() {
-        let engine = makeEngine()
-        var first: [CollapseResult] = []
-        var second: [CollapseResult] = []
-        engine.collapse { first.append($0) }
-        engine.collapse { second.append($0) }
-        XCTAssertEqual(visibility.requests.count, 1)
-        visibility.succeed(0)
-        XCTAssertEqual(first, [.collapsed])
-        XCTAssertEqual(second, [.collapsed])
-    }
-
-    func testExpandCancelsEveryCallerBeforeDelayedSnapshotReturns() {
-        inventory.deferred = true
-        let engine = makeEngine()
-        var results: [CollapseResult] = []
-        engine.collapse { results.append($0) }
-        engine.collapse { results.append($0) }
-        engine.expand()
-        XCTAssertEqual(results, [.cancelled, .cancelled])
-        inventory.deliver()
-        XCTAssertTrue(visibility.requests.isEmpty)
-        XCTAssertEqual(engine.state, .expanded)
-    }
-
-    func testFailedRestoreRemainsVisibleAsProblemAndNextExpandRetries() {
-        let engine = makeEngine()
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
-        engine.collapse { _ in }
-        let handle = visibility.succeed(0)
-        handle.restoresSuccessfully = false
-        engine.expand()
-        XCTAssertEqual(engine.state, .unavailable)
-        XCTAssertEqual(engine.unavailableReason, .restoreFailed)
-        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
-        handle.restoresSuccessfully = true
-        engine.expand()
-        XCTAssertEqual(handle.invalidations, 2)
-        XCTAssertEqual(engine.state, .expanded)
-        XCTAssertNil(engine.unavailableReason)
-        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, true)
-    }
-
-    func testFailedActivationRestorationIsReportedEvenWithoutHandle() {
-        visibility.restoresSuccessfully = false
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        visibility.fail(0)
-        XCTAssertEqual(engine.unavailableReason, .restoreFailed)
-        XCTAssertEqual(engine.state, .unavailable)
-        visibility.restoresSuccessfully = true
-        engine.expand()
-        XCTAssertEqual(visibility.restores, 2)
-        XCTAssertEqual(engine.state, .expanded)
-    }
-
-    func testLateCancelledActivationRetainsFailedRestoreForRetry() {
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        engine.expand()
-        let handle = FakeAssertion(allowed: [])
-        handle.restoresSuccessfully = false
-        visibility.requests[0].completion(.success(handle))
-        XCTAssertEqual(engine.unavailableReason, .restoreFailed)
-        XCTAssertEqual(engine.state, .unavailable)
-        handle.restoresSuccessfully = true
-        engine.expand()
-        XCTAssertEqual(handle.invalidations, 2)
-        XCTAssertEqual(engine.state, .expanded)
-    }
-
-    func testSeparatorReturnsOnlyAfterRestorationCompletes() {
-        let engine = makeEngine()
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
-        engine.collapse { _ in }
-        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
-        let handle = visibility.succeed(0)
-        XCTAssertTrue(engine.isAlwaysHiddenSeparatorPlaced, "right-click must work while the separator is absent")
-        handle.onInvalidate = {
-            XCTAssertEqual(self.items.alwaysHiddenItem?.isVisible, false)
-        }
-        engine.expand()
-        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, true)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
-    }
-
-    func testFileAccessFailureIsDistinctAndGrantCanRetry() {
-        visibility.isAvailable = false
-        visibility.unavailableReason = .fileAccessNeeded
-        let engine = makeEngine()
-        engine.collapse { _ in }
-        XCTAssertEqual(engine.unavailableReason, .fileAccessNeeded)
-        engine.requestAccess()
-        XCTAssertEqual(visibility.accessRequests, 1)
-        visibility.isAvailable = true
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        XCTAssertNil(engine.unavailableReason)
-    }
-}
-
-// MARK: - Legacy engine
-
 final class LegacyLengthEngineTests: XCTestCase {
-    func testCollapseAndExpandFlipSeparatorLength() {
+    func testApplyAndRestoreLengthsWithoutHidingOurItems() {
         let items = FakeItems()
         let engine = LegacyLengthEngine(items: items)
-        XCTAssertEqual(engine.state, .expanded)
-
-        var result: CollapseResult?
-        engine.collapse { result = $0 }
-        XCTAssertEqual(result, .collapsed)
-        XCTAssertEqual(engine.state, .collapsed)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 20, "collapse leaves the always-hidden item alone")
-
-        engine.expand()
-        XCTAssertEqual(engine.state, .expanded)
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        XCTAssertGreaterThan(items.separatorItem.length, 20)
+        XCTAssertGreaterThan(items.alwaysHiddenItem!.length, 20)
+        engine.apply(collapsed: false, alwaysHiddenShown: false)
         XCTAssertEqual(items.separatorItem.length, 20)
-    }
-
-    // A display change re-sizes the always-hidden item while it is inflated,
-    // even with the bar expanded, and leaves it alone otherwise.
-    func testDisplayChangeResizesInflatedAlwaysHiddenItem() {
-        let items = FakeItems()
-        let engine = LegacyLengthEngine(items: items)
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        let inflated = items.alwaysHiddenItem?.length ?? 0
-        XCTAssertGreaterThan(inflated, 20)
-
+        let length = items.alwaysHiddenItem!.length
         items.alwaysHiddenItem?.length = 300
         engine.invalidateLayout()
-        XCTAssertEqual(items.alwaysHiddenItem?.length, inflated)
-        XCTAssertEqual(engine.state, .expanded)
-
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
-        engine.invalidateLayout()
+        XCTAssertEqual(items.alwaysHiddenItem?.length, length)
+        XCTAssertTrue(engine.restoreAll())
+        XCTAssertEqual(items.separatorItem.length, 20)
         XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
     }
 }
 
-// MARK: - Sections chosen in Settings (no ⌘-drag)
+private final class ManualWriter {
+    var pending: [() -> Void] = []
+    var isExecuting = false
+    func enqueue(_ work: @escaping () -> Void) { pending.append(work) }
+    func run() {
+        while !pending.isEmpty {
+            let work = pending.removeFirst()
+            isExecuting = true
+            work()
+            isExecuting = false
+        }
+    }
+    func synchronize(_ work: @escaping () -> Bool) -> Bool {
+        run()
+        isExecuting = true
+        defer { isExecuting = false }
+        return work()
+    }
+}
 
-final class SectionOverrideTests: XCTestCase {
+final class AllowListEngineTests: XCTestCase {
     private var items: FakeItems!
     private var inventory: FakeInventory!
-    private var visibility: FakeVisibility!
-    private var overrides: [String: MenuBarSection] = [:]
+    private var bridge: FakeVisibility!
+    private var scheduler: ManualScheduler!
+    private var writer: ManualWriter!
+    private var workspace: NotificationCenter!
+    private var boundaryX: CGFloat = 1300
+    private var alwaysX: CGFloat = 1000
+    private var shift: CGFloat = 0
+    private var missingAlwaysFrame = false
+    private var missingSeparatorFrame = false
+    private var moves: NotificationCenter!
+    private var arrowWindow: NSObject!
+    private var separatorWindow: NSObject!
+    private var alwaysWindow: NSObject!
 
     override func setUp() {
-        super.setUp()
         items = FakeItems()
         inventory = FakeInventory()
         inventory.items = [item("com.always", x: 900), item("com.hidden", x: 1100), item("com.visible", x: 1400)]
-        visibility = FakeVisibility()
-        overrides = [:]
+        bridge = FakeVisibility()
+        scheduler = ManualScheduler()
+        writer = ManualWriter()
+        workspace = NotificationCenter()
+        boundaryX = 1300
+        alwaysX = 1000
+        shift = 0
+        missingAlwaysFrame = false
+        missingSeparatorFrame = false
+        moves = NotificationCenter()
+        arrowWindow = NSObject()
+        separatorWindow = NSObject()
+        alwaysWindow = NSObject()
     }
 
-    private func makeEngine() -> NativeVisibilityEngine {
-        let items = self.items!
-        return NativeVisibilityEngine(items: items, inventory: inventory, visibility: visibility,
-                                      ownBundleIdentifier: "com.dwarvesv.minimalbar",
-                                      itemFrame: { $0 === items.toggleItem ? separator : alwaysHiddenSeparator },
-                                      isLTR: { true },
-                                      launchNotifications: NotificationCenter(),
-                                      sectionOverrides: { [unowned self] in self.overrides },
-                                      schedule: { _, body in DispatchWorkItem(block: body) })
+    private func makeEngine() -> AllowListEngine {
+        AllowListEngine(items: items, bridge: bridge, inventory: inventory,
+            ownBundle: "own", frame: { [unowned self] item in
+                if item === self.items.toggleItem { return CGRect(x: 1330 + self.shift, y: 0, width: 20, height: 24) }
+                if item === self.items.separatorItem {
+                    return self.missingSeparatorFrame ? nil : CGRect(x: self.boundaryX + self.shift, y: 0, width: 20, height: 24)
+                }
+                return self.missingAlwaysFrame ? nil : CGRect(x: self.alwaysX + self.shift, y: 0, width: 20, height: 24)
+            }, isLTR: { true }, window: { [unowned self] item in
+                if item === self.items.toggleItem { return self.arrowWindow }
+                if item === self.items.separatorItem { return self.separatorWindow }
+                return self.alwaysWindow
+            }, notifications: moves, workspaceNotifications: workspace,
+            schedule: scheduler.schedule, enqueue: writer.enqueue, synchronize: writer.synchronize,
+            deliver: { $0() })
     }
 
-    func testOverridesWinOverPositions() {
-        let layout = MenuBarLayout(sections: ["com.a": .visible, "com.b": .hidden])
-        let applied = layout.applying(overrides: ["com.a": .hidden, "com.b": .visible, "com.new": .alwaysHidden], alwaysHiddenEnabled: true)
-        XCTAssertEqual(applied.sections, ["com.a": .hidden, "com.b": .visible, "com.new": .alwaysHidden])
+    private func snapshot(_ engine: AllowListEngine) {
+        scheduler.fire()
+        writer.run()
     }
 
-    func testAlwaysHiddenChoiceHidesWhenTheSectionIsOff() {
-        let layout = MenuBarLayout(sections: ["com.a": .visible])
-        let applied = layout.applying(overrides: ["com.a": .alwaysHidden], alwaysHiddenEnabled: false)
-        XCTAssertEqual(applied.sections, ["com.a": .hidden])
+    private func complete(_ index: Int) {
+        bridge.succeed(index)
+        writer.run()
     }
 
-    func testCollapseHidesAnAppChosenAsHiddenAndShowsOneChosenAsShown() {
-        overrides = ["com.visible": .hidden, "com.hidden": .visible]
+    func testDesiredHiddenSetsAndSynchronousOwnItems() {
         let engine = makeEngine()
-        engine.collapse { _ in }
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden"])
+        snapshot(engine)
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        XCTAssertFalse(items.separatorItem.isVisible)
+        XCTAssertFalse(items.alwaysHiddenItem!.isVisible)
+        XCTAssertEqual(items.separatorItem.length, 20)
+        XCTAssertTrue(bridge.requests.isEmpty, "writes never run in apply")
+        writer.run()
+        XCTAssertEqual(bridge.requests.first?.hidden, ["com.always", "com.hidden"])
+        XCTAssertEqual(Set(bridge.requests.first?.bundles ?? []), ["com.visible", "own", "com.apple.MenuBarAgent", "com.apple.controlcenter"])
+        complete(0)
+        engine.apply(collapsed: false, alwaysHiddenShown: false)
+        XCTAssertTrue(items.separatorItem.isVisible)
+        XCTAssertFalse(items.alwaysHiddenItem!.isVisible)
+        writer.run()
+        XCTAssertEqual(bridge.requests.dropFirst().first?.hidden, ["com.always"])
+        complete(1)
+        let restores = bridge.restores
+        engine.apply(collapsed: false, alwaysHiddenShown: true)
+        writer.run()
+        XCTAssertEqual(bridge.restores, restores + 1)
+        XCTAssertTrue(items.alwaysHiddenItem!.isVisible)
+        XCTAssertEqual(scheduler.delays.last, 1.5)
     }
 
-    func testChangingAChoiceWhileCollapsedSwapsTheRestriction() {
+    func testLatestPendingWriteWinsWhileAnActivationIsInFlight() {
         let engine = makeEngine()
-        engine.collapse { _ in }
-        let first = visibility.succeed(0)
-        XCTAssertEqual(visibility.requests[0].bundles, ["com.dwarvesv.minimalbar", "com.visible"])
-
-        overrides = ["com.visible": .hidden]
-        var reapplied: Bool?
-        engine.reapplySections { reapplied = $0 }
-        XCTAssertEqual(visibility.requests.count, 2)
-        XCTAssertEqual(visibility.requests[1].bundles, ["com.dwarvesv.minimalbar"])
-        XCTAssertFalse(first.isInvalidated, "the old restriction stays until the new one is active")
-        visibility.succeed(1)
-        XCTAssertTrue(first.isInvalidated)
-        XCTAssertEqual(reapplied, true)
-        XCTAssertEqual(engine.state, .collapsed)
+        snapshot(engine)
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        writer.run()
+        XCTAssertEqual(bridge.requests.count, 1)
+        engine.apply(collapsed: false, alwaysHiddenShown: true)
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        engine.apply(collapsed: false, alwaysHiddenShown: false)
+        writer.run()
+        XCTAssertEqual(bridge.requests.count, 1)
+        complete(0)
+        XCTAssertEqual(bridge.requests.count, 2)
+        XCTAssertEqual(bridge.requests.dropFirst().first?.hidden, ["com.always"])
+        complete(1)
     }
 
-    func testFailedReapplyShowsEverything() {
+    func testRequestsCoalesceBeforeWriterStarts() {
         let engine = makeEngine()
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        overrides = ["com.visible": .hidden]
-        var reapplied: Bool?
-        engine.reapplySections { reapplied = $0 }
-        visibility.fail(1)
-        XCTAssertEqual(reapplied, false)
-        XCTAssertEqual(engine.state, .expanded)
+        snapshot(engine)
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        engine.apply(collapsed: false, alwaysHiddenShown: false)
+        writer.run()
+        XCTAssertEqual(bridge.requests.count, 1)
+        XCTAssertEqual(bridge.requests.first?.hidden, ["com.always"])
+        complete(0)
     }
 
-    // An app chosen as always hidden but not read from the bar (launched while
-    // collapsed) must not be shown as "unseen" while expanded.
-    func testExpandedKeepsAChosenAlwaysHiddenAppHiddenEvenIfUnread() {
-        overrides = ["com.late": .alwaysHidden]
+    func testFirstCollapseWaitsForLaunchSnapshotWithoutAnotherApply() {
+        inventory.deferred = true
         let engine = makeEngine()
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible"])
+        scheduler.fire()
+        XCTAssertEqual(inventory.snapshots, 1)
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        writer.run()
+        XCTAssertTrue(bridge.requests.isEmpty)
+        inventory.deliver()
+        writer.run()
+        XCTAssertEqual(bridge.requests.count, 1)
+        XCTAssertEqual(bridge.requests.first?.hidden, ["com.always", "com.hidden"])
+        complete(0)
     }
 
-    func testReadSectionsReportsPositionsWithoutChoices() {
-        overrides = ["com.visible": .hidden]
+    func testCollapseDoesNotCancelPendingLaunchSnapshot() {
         let engine = makeEngine()
-        var read: MenuBarLayout?
-        engine.readSections { read = $0 }
-        XCTAssertEqual(read?.sections, ["com.always": .hidden, "com.hidden": .hidden, "com.visible": .visible])
-        XCTAssertTrue(visibility.requests.isEmpty, "reading for Settings never changes what is hidden")
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        snapshot(engine)
+        XCTAssertEqual(bridge.requests.count, 1)
+        complete(0)
     }
 
-    func testHiddenOverrideNeverSwitchesOffAnIconlessApp() {
-        overrides = ["com.iconless": .hidden]
-        inventory.noIconBundles = ["com.iconless"]
+    func testHiddenBundlesKeepTheirCachedSectionAcrossStaleFrames() {
         let engine = makeEngine()
-        engine.collapse { _ in }
-        XCTAssertFalse(visibility.requests[0].hidden.contains("com.iconless"))
+        snapshot(engine)
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        writer.run()
+        complete(0)
+        inventory.items = [item("com.always", x: 1800), item("com.hidden", x: 1800), item("com.visible", x: 1450)]
+        engine.refreshArrangement()
+        snapshot(engine)
+        XCTAssertEqual(bridge.requests.last?.hidden, ["com.always", "com.hidden"])
+        complete(1)
     }
 
-    func testChangingOverrideDoesNotHideAnAppWhoseIconDisappeared() {
+    func testNoSnapshotsOnClicksOrIdleAndOneShotDoesNotRepeat() {
         let engine = makeEngine()
-        engine.collapse { _ in }
-        visibility.succeed(0)
-        inventory.items.removeAll { $0.bundleIdentifier == "com.visible" }
-        inventory.noIconBundles = ["com.visible"]
-        overrides = ["com.visible": .hidden]
-        engine.reapplySections { _ in }
-        XCTAssertFalse(visibility.requests[1].hidden.contains("com.visible"))
-    }
-}
-
-// MARK: - Why hiding does not work (shown to the user)
-
-final class UnavailableReasonTests: XCTestCase {
-    private func makeEngine(inventory: FakeInventory, visibility: FakeVisibility) -> NativeVisibilityEngine {
-        let items = FakeItems()
-        return NativeVisibilityEngine(items: items, inventory: inventory, visibility: visibility,
-                                      ownBundleIdentifier: "com.dwarvesv.minimalbar",
-                                      itemFrame: { $0 === items.toggleItem ? separator : alwaysHiddenSeparator },
-                                      isLTR: { true },
-                                      launchNotifications: NotificationCenter(),
-                                      schedule: { _, body in DispatchWorkItem(block: body) })
+        snapshot(engine)
+        engine.apply(collapsed: true, alwaysHiddenShown: true)
+        writer.run()
+        complete(0)
+        XCTAssertEqual(inventory.snapshots, 1)
+        engine.apply(collapsed: false, alwaysHiddenShown: true)
+        writer.run()
+        XCTAssertEqual(inventory.snapshots, 1)
+        snapshot(engine)
+        XCTAssertEqual(inventory.snapshots, 2)
+        XCTAssertTrue(scheduler.pending.allSatisfy { $0.isCancelled })
     }
 
-    func testEachFailureHasItsOwnReasonAndSuccessClearsIt() {
-        let inventory = FakeInventory()
-        inventory.items = [item("com.visible", x: 1400)]
-        let visibility = FakeVisibility()
+    func testSnapshotTriggersDebounceAndWorkspaceOnlyWhenFullyShown() {
+        let engine = makeEngine()
+        engine.refreshArrangement()
+        engine.invalidateLayout()
+        workspace.post(name: NSWorkspace.didLaunchApplicationNotification, object: nil)
+        snapshot(engine)
+        XCTAssertEqual(inventory.snapshots, 1)
+        engine.apply(collapsed: true, alwaysHiddenShown: true)
+        writer.run()
+        complete(0)
+        workspace.post(name: NSWorkspace.didTerminateApplicationNotification, object: nil)
+        XCTAssertTrue(scheduler.pending.allSatisfy { $0.isCancelled })
+        engine.apply(collapsed: false, alwaysHiddenShown: false)
+        writer.run()
+        complete(1)
+        workspace.post(name: NSWorkspace.didLaunchApplicationNotification, object: nil)
+        XCTAssertTrue(scheduler.pending.allSatisfy { $0.isCancelled })
+    }
 
-        visibility.isAvailable = false
-        let unsupported = makeEngine(inventory: inventory, visibility: visibility)
-        unsupported.collapse { _ in }
-        XCTAssertEqual(unsupported.unavailableReason, .notSupported)
+    func testRefreshedShownBundlesFollowSeparatorRatherThanArrow() {
+        inventory.items = [item("com.gap", x: 1315), item("com.hidden", x: 1100)]
+        let engine = makeEngine()
+        snapshot(engine)
+        engine.apply(collapsed: true, alwaysHiddenShown: true)
+        writer.run()
+        XCTAssertEqual(bridge.requests.first?.hidden, ["com.hidden"])
+        complete(0)
+    }
 
-        visibility.isAvailable = true
+    func testDisablingAlwaysHiddenRevealsItsBundlesWhileExpanded() {
+        let engine = makeEngine()
+        snapshot(engine)
+        engine.apply(collapsed: false, alwaysHiddenShown: false)
+        writer.run()
+        complete(0)
+        items.alwaysHiddenItem = nil
+        let restores = bridge.restores
+        engine.apply(collapsed: false, alwaysHiddenShown: false)
+        writer.run()
+        XCTAssertEqual(bridge.restores, restores + 1)
+    }
+
+    func testArrangementIsCachedWhileSeparatorIsAbsent() {
+        let engine = makeEngine()
+        XCTAssertTrue(engine.isArrangementValid)
+        XCTAssertTrue(engine.isAlwaysHiddenSeparatorPlaced)
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        boundaryX = 1400
+        XCTAssertTrue(engine.isArrangementValid)
+        XCTAssertTrue(engine.isAlwaysHiddenSeparatorPlaced)
+        engine.apply(collapsed: false, alwaysHiddenShown: true)
+        XCTAssertFalse(engine.isArrangementValid)
+    }
+
+    func testQuitRestoresAndCancelsQueuedHideBeforeItWrites() {
+        let engine = makeEngine()
+        snapshot(engine)
+        let restores = bridge.restores
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        XCTAssertTrue(engine.restoreAll())
+        writer.run()
+        XCTAssertTrue(bridge.requests.isEmpty)
+        XCTAssertEqual(bridge.restores, restores + 1)
+        engine.refreshArrangement()
+        snapshot(engine)
+        XCTAssertTrue(bridge.requests.isEmpty)
+    }
+
+    func testUnavailableBridgeLeavesImmediateUIAndReportsFileAccess() {
+        bridge.isAvailable = false
+        let engine = makeEngine()
+        snapshot(engine)
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        writer.run()
+        XCTAssertFalse(items.separatorItem.isVisible)
+        XCTAssertTrue(engine.needsFileAccess)
+        XCTAssertTrue(bridge.requests.isEmpty)
+        bridge.isAvailable = true
+        engine.requestAccess()
+        writer.run()
+        XCTAssertFalse(engine.needsFileAccess)
+        XCTAssertEqual(bridge.accessRequests, 1)
+        XCTAssertEqual(bridge.requests.count, 1)
+        complete(0)
+    }
+    func testUnknownAlwaysHiddenPlacementStaysMeasurableUntilLaunchSnapshot() {
+        missingAlwaysFrame = true
+        let engine = makeEngine()
+        engine.apply(collapsed: false, alwaysHiddenShown: false)
+        XCTAssertTrue(engine.isAlwaysHiddenSeparatorPlaced, "unknown placement must not lock out a secondary click")
+        XCTAssertTrue(items.alwaysHiddenItem!.isVisible)
+        missingAlwaysFrame = false
+        snapshot(engine)
+        XCTAssertTrue(engine.isAlwaysHiddenSeparatorPlaced)
+        XCTAssertFalse(items.alwaysHiddenItem!.isVisible)
+        XCTAssertEqual(bridge.requests.first?.hidden, ["com.always"])
+        complete(0)
+    }
+
+    func testPermissionGrantedAfterSkippedLaunchSnapshotRetriesOnCollapse() {
         inventory.isAuthorized = false
-        let engine = makeEngine(inventory: inventory, visibility: visibility)
-        engine.collapse { _ in }
-        XCTAssertEqual(engine.unavailableReason, .accessibilityNeeded)
-
+        let engine = makeEngine()
+        snapshot(engine)
+        XCTAssertEqual(inventory.snapshots, 0)
+        XCTAssertEqual(inventory.authorizationRequests, 1)
         inventory.isAuthorized = true
-        engine.collapse { _ in }
-        visibility.fail(0)
-        XCTAssertEqual(engine.unavailableReason, .activationFailed)
-
-        engine.collapse { _ in }
-        visibility.succeed(1)
-        XCTAssertNil(engine.unavailableReason, "a collapse that works clears the message")
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        XCTAssertEqual(inventory.snapshots, 0, "the click only schedules the requested snapshot")
+        snapshot(engine)
+        XCTAssertEqual(inventory.snapshots, 1)
+        XCTAssertEqual(bridge.requests.first?.hidden, ["com.always", "com.hidden"])
+        complete(0)
     }
+
+    func testMissingLaunchBoundaryRetriesOnNextCollapseWithoutPolling() {
+        missingSeparatorFrame = true
+        let engine = makeEngine()
+        snapshot(engine)
+        XCTAssertEqual(inventory.snapshots, 0)
+        XCTAssertTrue(scheduler.pending.isEmpty)
+        missingSeparatorFrame = false
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        snapshot(engine)
+        XCTAssertEqual(inventory.snapshots, 1)
+        XCTAssertEqual(bridge.requests.first?.hidden, ["com.always", "com.hidden"])
+        complete(0)
+    }
+
+    func testMoveNotificationsIgnoreUniformShiftAndCoalesceChangedOffsets() {
+        let engine = makeEngine()
+        snapshot(engine)
+        shift = 100
+        moves.post(name: NSWindow.didMoveNotification, object: arrowWindow)
+        moves.post(name: NSWindow.didMoveNotification, object: separatorWindow)
+        snapshot(engine)
+        XCTAssertEqual(inventory.snapshots, 1, "clock width changes must not walk AX")
+        boundaryX = 1250
+        moves.post(name: NSWindow.didMoveNotification, object: separatorWindow)
+        moves.post(name: NSWindow.didMoveNotification, object: arrowWindow)
+        snapshot(engine)
+        XCTAssertEqual(inventory.snapshots, 2)
+        alwaysX = 950
+        moves.post(name: NSWindow.didMoveNotification, object: alwaysWindow)
+        snapshot(engine)
+        XCTAssertEqual(inventory.snapshots, 3)
+        XCTAssertTrue(scheduler.pending.isEmpty)
+    }
+
+    func testQuitWithActivationInFlightRestoresOnceAndIgnoresLateCompletion() {
+        let engine = makeEngine()
+        snapshot(engine)
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        writer.run()
+        XCTAssertEqual(bridge.requests.count, 1)
+        let restores = bridge.restores
+        XCTAssertTrue(engine.restoreAll())
+        complete(0)
+        XCTAssertEqual(bridge.requests.count, 1)
+        XCTAssertEqual(bridge.restores, restores + 1)
+        XCTAssertTrue(writer.pending.isEmpty)
+    }
+
 }
-
-// MARK: - macOS 27 overflow collapse
-
-final class OverflowCollapseGeometryTests: XCTestCase {
-    func testPlainDisplayStaysUnderHalfItsWidthAndSpansIt() {
-        let plan = OverflowCollapseGeometry.plan(displays: [.init(width: 1920)])
-        XCTAssertEqual(plan.unitLength, 896)
-        XCTAssertGreaterThanOrEqual(plan.unitLength * CGFloat(plan.activeSpacers + 1), 1920)
-    }
-
-    func testNotchedDisplayUsesTheAreaRightOfTheNotch() {
-        let plan = OverflowCollapseGeometry.plan(displays: [.init(width: 1512, statusWidth: 663.5)])
-        XCTAssertLessThan(plan.unitLength, 515, "535 pt is discarded on this display")
-        XCTAssertGreaterThanOrEqual(plan.unitLength * CGFloat(plan.activeSpacers + 1), 663.5)
-    }
-
-    func testMixedDisplaysUseTheNarrowestLimitAndTheWidestArea() {
-        let plan = OverflowCollapseGeometry.plan(displays: [.init(width: 1280), .init(width: 6016)])
-        XCTAssertEqual(plan.unitLength, 576)
-        XCTAssertGreaterThanOrEqual(plan.unitLength * CGFloat(plan.activeSpacers + 1), 6016)
-        XCTAssertLessThanOrEqual(plan.activeSpacers, OverflowCollapseGeometry.spacerCount)
-    }
-
-    func testNoDisplayFallsBack() {
-        XCTAssertEqual(OverflowCollapseGeometry.plan(displays: []), .init(unitLength: 200, activeSpacers: 0))
-    }
-}
-
-final class OverflowCollapseEngineTests: XCTestCase {
-    private let bar = NSStatusBar()
-    private var spacers: [String: NSStatusItem] = [:]
-
-    private func makeEngine(_ items: FakeItems) -> OverflowCollapseEngine {
-        return OverflowCollapseEngine(items: items,
-                                      displays: { [.init(width: 1920)] },
-                                      makeSpacer: { [unowned self] name in
-                                          let spacer = self.bar.statusItem(withLength: 0)
-                                          self.spacers[name] = spacer
-                                          return spacer
-                                      })
-    }
-
-    private var spacerLengths: [CGFloat] {
-        return (0..<OverflowCollapseGeometry.spacerCount).map { spacers[OverflowCollapseEngine.spacerAutosaveName($0)]!.length }
-    }
-
-    func testRegistersEverySpacerOnce() {
-        _ = makeEngine(FakeItems())
-        XCTAssertEqual(spacers.count, OverflowCollapseGeometry.spacerCount)
-        XCTAssertEqual(Set(spacerLengths), [0])
-    }
-
-    func testCollapseInflatesTheSeparatorUnderTheLimitAndExpandRestoresIt() {
-        let items = FakeItems()
-        let engine = makeEngine(items)
-        XCTAssertTrue(items.separatorItem.isVisible, "the separator is the boundary, so it stays in the bar")
-
-        var result: CollapseResult?
-        engine.collapse { result = $0 }
-        XCTAssertEqual(result, .collapsed)
-        XCTAssertEqual(engine.state, .collapsed)
-        XCTAssertEqual(items.separatorItem.length, 896)
-        XCTAssertEqual(spacerLengths.filter { $0 == 896 }.count, 2)
-
-        engine.expand()
-        XCTAssertEqual(engine.state, .expanded)
-        XCTAssertEqual(items.separatorItem.length, 20)
-        XCTAssertEqual(Set(spacerLengths), [0])
-    }
-
-    func testExpandedWithSeparatorsHiddenInflatesOnlyTheAlwaysHiddenSeparator() {
-        let items = FakeItems()
-        let engine = makeEngine(items)
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 896)
-        XCTAssertEqual(items.separatorItem.length, 20)
-        XCTAssertEqual(spacerLengths.filter { $0 == 896 }.count, 2)
-
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
-        XCTAssertEqual(Set(spacerLengths), [0])
-
-        engine.updateAlwaysHiddenSection(enabled: false, separatorHidden: false)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
-    }
-
-    func testCollapsedInflatesTheRegularSeparatorEvenWithSeparatorsHidden() {
-        let items = FakeItems()
-        let engine = makeEngine(items)
-        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        engine.collapse { _ in }
-        XCTAssertEqual(items.separatorItem.length, 896)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
-    }
-}
-
-// MARK: - Allow in the Menu Bar entries
 
 final class AllowListTests: XCTestCase {
     private func apply(hiding hidden: Set<String>, keeping kept: Set<String>, to entries: NSMutableArray,

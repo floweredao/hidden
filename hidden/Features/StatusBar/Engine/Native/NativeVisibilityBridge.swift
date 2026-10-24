@@ -25,8 +25,8 @@ protocol NativeVisibilityProviding: AnyObject {
     func requestAccess()
     @discardableResult func restoreAll() -> Bool
 
-    // Keeps only these system items and apps visible. The completion runs on the
-    // main queue.
+    // Keeps only these system items and apps visible. The completion runs
+    // synchronously on the caller's queue.
     func activate(allowedSystemItems: [Int],
                   allowedBundleIdentifiers: [String],
                   completion: @escaping (Result<NativeVisibilityAssertion, Error>) -> Void)
@@ -37,7 +37,7 @@ protocol NativeVisibilityProviding: AnyObject {
 }
 
 extension NativeVisibilityProviding {
-    var unavailableReason: HidingUnavailableReason { .notSupported }
+    var unavailableReason: HidingUnavailableReason { .fileAccessNeeded }
     func requestAccess() {}
     @discardableResult func restoreAll() -> Bool { true }
     func activate(allowedSystemItems: [Int], allowedBundleIdentifiers: [String],
@@ -45,44 +45,6 @@ extension NativeVisibilityProviding {
                   completion: @escaping (Result<NativeVisibilityAssertion, Error>) -> Void) {
         activate(allowedSystemItems: allowedSystemItems,
                  allowedBundleIdentifiers: allowedBundleIdentifiers, completion: completion)
-    }
-}
-
-final class NativeVisibilityBridge: NativeVisibilityProviding {
-    var isAvailable: Bool {
-        return HBNativeVisibilityIsAvailable()
-    }
-
-    func activate(allowedSystemItems: [Int],
-                  allowedBundleIdentifiers: [String],
-                  completion: @escaping (Result<NativeVisibilityAssertion, Error>) -> Void) {
-        HBNativeVisibilityActivate(allowedSystemItems.map { NSNumber(value: $0) },
-                                   allowedBundleIdentifiers) { handle, error in
-            if let handle = handle {
-                completion(.success(Handle(raw: handle)))
-            } else {
-                completion(.failure(error ?? NSError(domain: "HBNativeVisibility", code: 2)))
-            }
-        }
-    }
-
-    private final class Handle: NativeVisibilityAssertion {
-        private var raw: Any?
-
-        init(raw: Any) {
-            self.raw = raw
-        }
-
-        @discardableResult func invalidate() -> Bool {
-            guard let raw = raw else { return true }
-            self.raw = nil
-            HBNativeVisibilityInvalidate(raw)
-            return true
-        }
-
-        deinit {
-            invalidate()
-        }
     }
 }
 

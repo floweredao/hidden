@@ -22,10 +22,6 @@ class AppDelegate: NSObject, NSApplicationDelegate{
     // direction it reads are in place and only in the instance that stays.
     private(set) var statusBarController: StatusBarController!
 
-    // False when the switches a previous session left off could not be turned
-    // back on at launch; the recovery journal is then kept for another try.
-    private(set) var launchRecovered = true
-
     // Only the instance that passed ensureSingleInstance owns the recovery
     // journal; a duplicate quitting must leave it alone.
     private var ownsRecoveryJournal = false
@@ -33,7 +29,7 @@ class AppDelegate: NSObject, NSApplicationDelegate{
     private lazy var lifecycle = AppLifecycle(
         isOwner: { [weak self] in self?.ownsRecoveryJournal ?? false },
         recover: AppDelegate.recoverMenuBarSettings,
-        restore: AppDelegate.restoreMenuBarSettings)
+        restore: { [weak self] in self?.statusBarController?.restoreAll() ?? true })
 
     #if HIDDENBAR_UPDATER
     // The fork's own updater: checks floweredao/hidden's appcast (SUFeedURL) and
@@ -67,8 +63,7 @@ class AppDelegate: NSObject, NSApplicationDelegate{
         // A session that ended while collapsed left apps switched off. The
         // controller, and the initial collapse it schedules, start only after
         // that recovery has run.
-        lifecycle.launch { recovered in
-            launchRecovered = recovered
+        lifecycle.launch { _ in
             statusBarController = StatusBarController()
         }
         setupAutoStartApp()
@@ -85,9 +80,8 @@ class AppDelegate: NSObject, NSApplicationDelegate{
         return lifecycle.shouldTerminate()
     }
 
-    // Not gated on the backend preference: a journal written while the Settings
-    // backend was on must still be undone after the preference changes, and
-    // without a journal the bridge returns at once.
+    // Recovery runs before the controller regardless of which engine this launch picks.
+    // With no journal the bridge returns without changing any switches.
     private static func recoverMenuBarSettings() -> Bool {
         #if HIDDENBAR_NATIVE_VISIBILITY
         let bridge = MenuBarAllowListBridge.shared
@@ -96,14 +90,6 @@ class AppDelegate: NSObject, NSApplicationDelegate{
         // cleared this returns true without touching Settings; otherwise it
         // tries once more and reports the failure.
         return bridge.restoreAll()
-        #else
-        return true
-        #endif
-    }
-
-    private static func restoreMenuBarSettings() -> Bool {
-        #if HIDDENBAR_NATIVE_VISIBILITY
-        return MenuBarAllowListBridge.shared.restoreAll()
         #else
         return true
         #endif
@@ -169,10 +155,7 @@ class AppDelegate: NSObject, NSApplicationDelegate{
         UserDefaults.Key.numberOfSecondForAutoHide: 10.0,
         UserDefaults.Key.areSeparatorsHidden: false,
         UserDefaults.Key.alwaysHiddenSectionEnabled: false,
-        UserDefaults.Key.notchOverflowEnabled: true,
-        UserDefaults.Key.showsSystemIndicatorsWhenExpanded: true,
-        UserDefaults.Key.hidesIntoSystemOverflow: true,
-        UserDefaults.Key.hidesWithMenuBarSettings: true
+        UserDefaults.Key.notchOverflowEnabled: true
     ]
 
     func registerDefaultValues() {
