@@ -19,13 +19,14 @@ struct Assets {
         return configured
     }
 
-    // Shown while collapsed: points toward the hidden icons.
+    // Shown while collapsed: points toward the hidden icons, which sit left of
+    // the arrow in a left-to-right layout.
     static var expandImage: NSImage? {
-        return chevron(pointingLeft: !Constant.isUsingLTRLanguage)
+        return chevron(pointingLeft: Constant.isUsingLTRLanguage)
     }
 
     // Shown while expanded: points away from them.
     static var collapseImage: NSImage? {
-        return chevron(pointingLeft: Constant.isUsingLTRLanguage)
+        return chevron(pointingLeft: !Constant.isUsingLTRLanguage)
     }
 }
