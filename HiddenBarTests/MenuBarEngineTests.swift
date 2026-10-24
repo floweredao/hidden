@@ -291,7 +291,7 @@ final class AllowListEngineTests: XCTestCase {
         alwaysWindow = NSObject()
     }
 
-    private func makeEngine() -> AllowListEngine {
+    private func makeEngine(waitsForFirstCollapse: Bool = false) -> AllowListEngine {
         AllowListEngine(items: items, bridge: bridge, inventory: inventory,
             ownBundle: "own", frame: { [unowned self] item in
                 if item === self.items.toggleItem { return CGRect(x: 1330 + self.shift + self.arrowShift, y: 0, width: 20, height: 24) }
@@ -305,7 +305,7 @@ final class AllowListEngineTests: XCTestCase {
                 return self.alwaysWindow
             }, notifications: moves, workspaceNotifications: workspace,
             schedule: scheduler.schedule, enqueue: writer.enqueue, synchronize: writer.synchronize,
-            deliver: { $0() })
+            deliver: { $0() }, waitsForFirstCollapse: waitsForFirstCollapse)
     }
 
     private func snapshot(_ engine: AllowListEngine) {
@@ -383,6 +383,23 @@ final class AllowListEngineTests: XCTestCase {
         inventory.deliver()
         writer.run()
         XCTAssertEqual(bridge.requests.count, 1)
+        XCTAssertEqual(bridge.requests.first?.hidden, ["com.always", "com.hidden"])
+        complete(0)
+    }
+
+    // Icons a previous session hid are still being redrawn right after launch, so the
+    // first inventory is read at the first collapse, never earlier.
+    func testLaunchInventoryWaitsForTheFirstCollapse() {
+        let engine = makeEngine(waitsForFirstCollapse: true)
+        engine.refreshArrangement()
+        engine.apply(collapsed: false, alwaysHiddenShown: true)
+        XCTAssertTrue(scheduler.pending.allSatisfy(\.isCancelled), "nothing reads the inventory before the first collapse")
+        XCTAssertEqual(inventory.snapshots, 0)
+        engine.apply(collapsed: true, alwaysHiddenShown: true)
+        XCTAssertTrue(items.separatorItem.isVisible)
+        snapshot(engine)
+        XCTAssertEqual(inventory.snapshots, 1)
+        XCTAssertFalse(items.separatorItem.isVisible)
         XCTAssertEqual(bridge.requests.first?.hidden, ["com.always", "com.hidden"])
         complete(0)
     }

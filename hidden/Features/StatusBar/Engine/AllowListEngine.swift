@@ -48,6 +48,10 @@ final class AllowListEngine: MenuBarEngine {
     private(set) var needsFileAccess = false
     private var revision = 0
     private var settledSnapshotNeeded = false
+    // At launch the icons a previous session hid are still being redrawn, and our own
+    // items are still being placed, so an inventory read then misses them. The first
+    // read waits for the first collapse (A9 schedules it about a second after launch).
+    private var inventoryAllowed: Bool
 
     // The mailbox is shared with the writer; everything else above is main-thread state.
     private let lock = NSLock()
@@ -72,7 +76,9 @@ final class AllowListEngine: MenuBarEngine {
          queue: DispatchQueue = DispatchQueue(label: "com.dwarvesv.minimalbar.allow-list", qos: .userInitiated),
          enqueue: ((@escaping () -> Void) -> Void)? = nil,
          synchronize: ((@escaping () -> Bool) -> Bool)? = nil,
-         deliver: @escaping (@escaping () -> Void) -> Void = { DispatchQueue.main.async(execute: $0) }) {
+         deliver: @escaping (@escaping () -> Void) -> Void = { DispatchQueue.main.async(execute: $0) },
+         waitsForFirstCollapse: Bool = true) {
+        self.inventoryAllowed = !waitsForFirstCollapse
         self.items = items
         self.bridge = bridge
         self.inventory = inventory
@@ -137,6 +143,7 @@ final class AllowListEngine: MenuBarEngine {
 
     func apply(collapsed: Bool, alwaysHiddenShown: Bool) {
         captureArrangement()
+        if collapsed { inventoryAllowed = true }
         settledSnapshotNeeded = settledSnapshotNeeded || (self.collapsed && !collapsed)
             || (!self.alwaysHiddenShown && alwaysHiddenShown)
         self.collapsed = collapsed
@@ -185,6 +192,10 @@ final class AllowListEngine: MenuBarEngine {
     }
 
     private func requestSnapshot(after delay: TimeInterval, onlyIfOffsetsChanged: Bool = false) {
+        guard inventoryAllowed else {
+            snapshotSkipped = true
+            return
+        }
         snapshotNeedsInventory = snapshotNeedsInventory || !onlyIfOffsetsChanged
         snapshotWork?.cancel()
         snapshotWork = schedule(delay) { [weak self] in
