@@ -154,6 +154,13 @@ private func item(_ bundle: String?, x: CGFloat, width: CGFloat = 24) -> MenuBar
 private let alwaysHiddenSeparator = CGRect(x: 1000, y: 0, width: 20, height: 24)
 private let separator = CGRect(x: 1300, y: 0, width: 20, height: 24)
 
+private func isolatedDefaults(_ test: XCTestCase) -> UserDefaults {
+    let suite = "HiddenBarTests.sections.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    test.addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+    return defaults
+}
+
 // MARK: - Layout resolver
 
 final class MenuBarLayoutResolverTests: XCTestCase {
@@ -227,6 +234,7 @@ final class NativeVisibilityEngineTests: XCTestCase {
     private var inventory: FakeInventory!
     private var visibility: FakeVisibility!
     private let launches = NotificationCenter()
+    private var defaults: UserDefaults!
 
     override func setUp() {
         super.setUp()
@@ -234,6 +242,7 @@ final class NativeVisibilityEngineTests: XCTestCase {
         inventory = FakeInventory()
         inventory.items = [item("com.always", x: 900), item("com.hidden", x: 1100), item("com.visible", x: 1400)]
         visibility = FakeVisibility()
+        defaults = isolatedDefaults(self)
     }
 
     private func makeEngine(keepsIndicatorsWhenExpanded: @escaping () -> Bool = { false },
@@ -244,8 +253,101 @@ final class NativeVisibilityEngineTests: XCTestCase {
                                       itemFrame: { $0 === items.toggleItem ? separator : alwaysHiddenSeparator },
                                       isLTR: { true },
                                       launchNotifications: launches,
+                                      defaults: defaults,
                                       keepsIndicatorsWhenExpanded: keepsIndicatorsWhenExpanded,
                                       schedule: schedule)
+    }
+
+    func testRelaunchKeepsRememberedAlwaysHiddenDespiteSeparatorDrift() {
+        defaults.set(["com.always": MenuBarSection.alwaysHidden.rawValue], forKey: "rememberedSections")
+        inventory.items = [item("com.always", x: 1100)]
+        let engine = makeEngine()
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
+        engine.readSections { XCTAssertEqual($0?.sections["com.always"], .alwaysHidden) }
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
+        XCTAssertEqual(visibility.requests.last?.hidden, ["com.always"])
+    }
+
+    func testRelaunchHidesRememberedHiddenAppRightOfArrow() {
+        defaults.set(["com.hidden": MenuBarSection.hidden.rawValue], forKey: "rememberedSections")
+        inventory.items = [item("com.hidden", x: 1400), item("com.visible", x: 1500)]
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        XCTAssertEqual(visibility.requests.last?.hidden, ["com.hidden"])
+        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.visible"])
+        let handle = visibility.succeed(0)
+        engine.expand()
+        XCTAssertTrue(handle.isInvalidated)
+        XCTAssertEqual(visibility.requests.count, 1, "full expansion releases every restriction")
+    }
+
+    func testDeliberateMoveBetweenUnrestrictedReadsIsPersisted() {
+        defaults.set(["com.always": MenuBarSection.alwaysHidden.rawValue], forKey: "rememberedSections")
+        inventory.items = [item("com.always", x: 1100)]
+        let engine = makeEngine()
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
+        engine.readSections { _ in }
+        inventory.items = [item("com.always", x: 1400)]
+        engine.readSections { XCTAssertEqual($0?.sections["com.always"], .visible) }
+        XCTAssertEqual(defaults.dictionary(forKey: "rememberedSections") as? [String: Int],
+                       ["com.always": MenuBarSection.visible.rawValue])
+    }
+
+    func testLaunchDriftIsNotAdoptedByIdenticalLaterReads() {
+        defaults.set(["com.always": MenuBarSection.alwaysHidden.rawValue], forKey: "rememberedSections")
+        inventory.items = [item("com.always", x: 1100)]
+        let engine = makeEngine()
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
+        engine.readSections { _ in }
+        engine.invalidateLayout()
+        engine.readSections { XCTAssertEqual($0?.sections["com.always"], .alwaysHidden) }
+        engine.collapse { _ in }
+        visibility.succeed(0)
+        engine.expand()
+        engine.readSections { XCTAssertEqual($0?.sections["com.always"], .alwaysHidden) }
+        XCTAssertEqual(defaults.dictionary(forKey: "rememberedSections") as? [String: Int],
+                       ["com.always": MenuBarSection.alwaysHidden.rawValue])
+    }
+
+    func testNewAppGetsLiveSectionWithoutReplacingRememberedApps() {
+        defaults.set(["com.always": MenuBarSection.alwaysHidden.rawValue], forKey: "rememberedSections")
+        inventory.items = [item("com.always", x: 1100)]
+        let engine = makeEngine()
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
+        engine.readSections { _ in }
+        inventory.items.append(item("com.new", x: 1200))
+        engine.readSections { XCTAssertEqual($0?.sections["com.new"], .hidden) }
+        XCTAssertEqual(defaults.dictionary(forKey: "rememberedSections") as? [String: Int],
+                       ["com.always": MenuBarSection.alwaysHidden.rawValue,
+                        "com.new": MenuBarSection.hidden.rawValue])
+    }
+
+    func testEmptyMembershipMigratesFirstLiveArrangement() {
+        let engine = makeEngine()
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
+        engine.readSections { _ in }
+        XCTAssertEqual(defaults.dictionary(forKey: "rememberedSections") as? [String: Int],
+                       ["com.always": MenuBarSection.alwaysHidden.rawValue,
+                        "com.hidden": MenuBarSection.hidden.rawValue,
+                        "com.visible": MenuBarSection.visible.rawValue])
+    }
+
+    func testMembershipSurvivesNewEngineAndDefaultsInstance() {
+        let suite = "HiddenBarTests.relaunch.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suite)!
+        addTeardownBlock { UserDefaults(suiteName: suite)!.removePersistentDomain(forName: suite) }
+        var first: NativeVisibilityEngine? = makeEngine()
+        first?.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
+        first?.readSections { _ in }
+        first = nil
+        defaults = UserDefaults(suiteName: suite)!
+        inventory.items = [item("com.always", x: 1100), item("com.hidden", x: 1400)]
+        let relaunched = makeEngine()
+        relaunched.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
+        relaunched.readSections {
+            XCTAssertEqual($0?.sections["com.always"], .alwaysHidden)
+            XCTAssertEqual($0?.sections["com.hidden"], .hidden)
+        }
     }
 
     // macOS hides its indicators (Focus, the mic/camera capsule) while any
@@ -877,6 +979,7 @@ final class SectionOverrideTests: XCTestCase {
     private var inventory: FakeInventory!
     private var visibility: FakeVisibility!
     private var overrides: [String: MenuBarSection] = [:]
+    private var defaults: UserDefaults!
 
     override func setUp() {
         super.setUp()
@@ -885,6 +988,7 @@ final class SectionOverrideTests: XCTestCase {
         inventory.items = [item("com.always", x: 900), item("com.hidden", x: 1100), item("com.visible", x: 1400)]
         visibility = FakeVisibility()
         overrides = [:]
+        defaults = isolatedDefaults(self)
     }
 
     private func makeEngine() -> NativeVisibilityEngine {
@@ -895,6 +999,7 @@ final class SectionOverrideTests: XCTestCase {
                                       isLTR: { true },
                                       launchNotifications: NotificationCenter(),
                                       sectionOverrides: { [unowned self] in self.overrides },
+                                      defaults: defaults,
                                       schedule: { _, body in DispatchWorkItem(block: body) })
     }
 
@@ -902,6 +1007,39 @@ final class SectionOverrideTests: XCTestCase {
         let layout = MenuBarLayout(sections: ["com.a": .visible, "com.b": .hidden])
         let applied = layout.applying(overrides: ["com.a": .hidden, "com.b": .visible, "com.new": .alwaysHidden], alwaysHiddenEnabled: true)
         XCTAssertEqual(applied.sections, ["com.a": .hidden, "com.b": .visible, "com.new": .alwaysHidden])
+    }
+
+    func testSheetOverrideUpdatesRememberedMembershipWhileExpanded() {
+        let engine = makeEngine()
+        engine.readSections { _ in }
+        overrides = ["com.visible": .hidden]
+        engine.reapplySections { XCTAssertTrue($0) }
+        XCTAssertEqual((defaults.dictionary(forKey: "rememberedSections") as? [String: Int])?["com.visible"],
+                       MenuBarSection.hidden.rawValue)
+        engine.readSections { XCTAssertEqual($0?.sections["com.visible"], .hidden) }
+        overrides = [:]
+        engine.readSections { XCTAssertEqual($0?.sections["com.visible"], .hidden) }
+        XCTAssertTrue(visibility.requests.isEmpty)
+    }
+
+    func testSheetOverrideUpdatesMembershipDuringRestrictedDiscovery() {
+        let scheduler = ManualScheduler()
+        let items = self.items!
+        let engine = NativeVisibilityEngine(items: items, inventory: inventory, visibility: visibility,
+                                           ownBundleIdentifier: "com.dwarvesv.minimalbar",
+                                           itemFrame: { $0 === items.toggleItem ? separator : alwaysHiddenSeparator },
+                                           isLTR: { true }, launchNotifications: NotificationCenter(),
+                                           sectionOverrides: { [unowned self] in self.overrides },
+                                           defaults: defaults, schedule: scheduler.schedule)
+        engine.collapse { _ in }
+        visibility.succeed(0)
+        overrides = ["com.visible": .hidden]
+        engine.reapplySections { _ in }
+        visibility.succeed(1)
+        scheduler.fire()
+        XCTAssertEqual(visibility.requests.count, 2)
+        XCTAssertEqual((defaults.dictionary(forKey: "rememberedSections") as? [String: Int])?["com.visible"],
+                       MenuBarSection.hidden.rawValue)
     }
 
     func testAlwaysHiddenChoiceHidesWhenTheSectionIsOff() {
@@ -956,12 +1094,12 @@ final class SectionOverrideTests: XCTestCase {
         XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible"])
     }
 
-    func testReadSectionsReportsPositionsWithoutChoices() {
+    func testReadSectionsReportsEffectiveChoices() {
         overrides = ["com.visible": .hidden]
         let engine = makeEngine()
         var read: MenuBarLayout?
         engine.readSections { read = $0 }
-        XCTAssertEqual(read?.sections, ["com.always": .hidden, "com.hidden": .hidden, "com.visible": .visible])
+        XCTAssertEqual(read?.sections, ["com.always": .hidden, "com.hidden": .hidden, "com.visible": .hidden])
         XCTAssertTrue(visibility.requests.isEmpty, "reading for Settings never changes what is hidden")
     }
 
@@ -995,6 +1133,7 @@ final class UnavailableReasonTests: XCTestCase {
                                       itemFrame: { $0 === items.toggleItem ? separator : alwaysHiddenSeparator },
                                       isLTR: { true },
                                       launchNotifications: NotificationCenter(),
+                                      defaults: isolatedDefaults(self),
                                       schedule: { _, body in DispatchWorkItem(block: body) })
     }
 

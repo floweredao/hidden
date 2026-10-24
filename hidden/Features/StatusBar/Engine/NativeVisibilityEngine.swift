@@ -9,13 +9,15 @@ import AppKit
 import os.log
 
 // The arrow is the hiding boundary. AX frames of hidden items are stale, so
-// their sections survive until an unrestricted read. New items are still live.
+// their sections survive restricted reads. Across launches, remembered membership
+// survives position drift until a later live read observes a boundary crossing.
 // The allow-list backend receives explicit, positively observed hide targets;
 // the assessment backend uses the corresponding allow list.
 final class NativeVisibilityEngine: MenuBarEngine {
     static let systemItemsToKeep = Array(0..<64)
     private static let registrationRetries = 30
     private static let log = OSLog(subsystem: "com.dwarvesv.minimalbar", category: "NativeVisibility")
+    private static let rememberedSectionsKey = "rememberedSections"
 
     private weak var items: MenuBarItemProvider?
     private let inventory: MenuBarInventoryProviding
@@ -25,6 +27,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
     private let isLTR: () -> Bool
     private let launchNotifications: NotificationCenter
     private let sectionOverrides: () -> [String: MenuBarSection]
+    private let defaults: UserDefaults
     private let keepsIndicatorsWhenExpanded: () -> Bool
     private let schedule: (TimeInterval, @escaping () -> Void) -> DispatchWorkItem
     private var launchObserver: NSObjectProtocol?
@@ -33,6 +36,8 @@ final class NativeVisibilityEngine: MenuBarEngine {
     private var retriesRemaining: [String: Int] = [:]
     private var observedIcons = Set<String>()
     private var unrestrictedIcons = Set<String>()
+    private var rememberedSections: [String: MenuBarSection]
+    private var previousLiveSections: [String: MenuBarSection]?
 
     private(set) var state: MenuBarEngineState = .expanded
     private(set) var layout: MenuBarLayout?
@@ -58,6 +63,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
          isLTR: @escaping () -> Bool = { Constant.isUsingLTRLanguage },
          launchNotifications: NotificationCenter = NSWorkspace.shared.notificationCenter,
          sectionOverrides: @escaping () -> [String: MenuBarSection] = { [:] },
+         defaults: UserDefaults = .standard,
          keepsIndicatorsWhenExpanded: @escaping () -> Bool = { false },
          schedule: @escaping (TimeInterval, @escaping () -> Void) -> DispatchWorkItem = { delay, body in
              let work = DispatchWorkItem(block: body)
@@ -72,6 +78,9 @@ final class NativeVisibilityEngine: MenuBarEngine {
         self.isLTR = isLTR
         self.launchNotifications = launchNotifications
         self.sectionOverrides = sectionOverrides
+        self.defaults = defaults
+        let stored = defaults.dictionary(forKey: Self.rememberedSectionsKey) as? [String: Int] ?? [:]
+        self.rememberedSections = stored.compactMapValues(MenuBarSection.init(rawValue:))
         self.keepsIndicatorsWhenExpanded = keepsIndicatorsWhenExpanded
         self.schedule = schedule
         items.separatorItem.isVisible = false
@@ -195,10 +204,13 @@ final class NativeVisibilityEngine: MenuBarEngine {
     var supportsSectionAssignment: Bool { true }
 
     func readSections(completion: @escaping (MenuBarLayout?) -> Void) {
-        readLayout { read, _, _, _ in completion(read) }
+        readLayout { [weak self] read, _, _, _ in completion(read.map { self?.effective($0) ?? $0 }) }
     }
 
     func reapplySections(completion: @escaping (Bool) -> Void) {
+        // Expanded presentation may not read any positions, but a sheet choice
+        // must survive the next launch even when no restriction is needed.
+        rememberSections(sectionOverrides())
         switch state {
         case .collapsed:
             generation += 1
@@ -237,12 +249,20 @@ final class NativeVisibilityEngine: MenuBarEngine {
         observedIcons = liveIcons.union(observedIcons.intersection(unreadable))
     }
 
+    private func rememberSections(_ sections: [String: MenuBarSection]) {
+        let updated = rememberedSections.merging(sections) { _, new in new }
+        guard updated != rememberedSections else { return }
+        rememberedSections = updated
+        defaults.set(updated.mapValues(\.rawValue), forKey: Self.rememberedSectionsKey)
+    }
+
     // Cached hidden sections never cross coordinate epochs. A new app is
     // classified from its live frame; unreadable apps retain their old section
     // for the sheet but are excluded from new hide requests.
     private func readLayout(_ completion: @escaping (MenuBarLayout?, Set<String>, Set<String>, Set<String>) -> Void) {
         let cached = layout
         let restricted = assertion != nil
+        let version = generation
         guard inventory.isAuthorized, let arrow = items?.toggleItem,
               let boundary = itemFrame(arrow) else {
             var read = cached
@@ -257,7 +277,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
         let held = activeHidden.subtracting(assertion?.unmatchedHiddenBundleIdentifiers ?? [])
         let partial = assertionHidesOnlyAlwaysHidden
         inventory.snapshot { [weak self] snapshot in
-            guard let self = self else { return completion(nil, [], [], []) }
+            guard let self = self, self.generation == version else { return completion(nil, [], [], []) }
             var sectionBoundary = alwaysFrame
             if restricted && partial && self.alwaysHiddenEnabled, let cached = cached {
                 // With the separator absent, the leading edge of the live hidden
@@ -275,6 +295,28 @@ final class NativeVisibilityEngine: MenuBarEngine {
                                                      separatorFrame: boundary,
                                                      alwaysHiddenSeparatorFrame: sectionBoundary,
                                                      isLTR: ltr, excludingBundle: self.ownBundleIdentifier)
+            if !restricted {
+                let live = read.sections.filter { snapshot.iconBundles.contains($0.key) }
+                var trusted: [String: MenuBarSection] = [:]
+                var disagreements: [String] = []
+                for (bundle, section) in live {
+                    // The launch layout can already have drifted. Only a crossing
+                    // observed between live reads in this run proves a new choice.
+                    if self.rememberedSections[bundle] == nil ||
+                        self.previousLiveSections?[bundle].map({ $0 != section }) == true {
+                        trusted[bundle] = section
+                    } else if self.previousLiveSections == nil,
+                              let remembered = self.rememberedSections[bundle], remembered != section {
+                        disagreements.append("\(bundle) (live: \(section), remembered: \(remembered))")
+                    }
+                }
+                if !disagreements.isEmpty {
+                    os_log("Keeping remembered sections after launch position drift: %{public}@",
+                           log: Self.log, type: .info, disagreements.sorted().joined(separator: ", "))
+                }
+                self.previousLiveSections = live
+                self.rememberSections(trusted)
+            }
             if restricted {
                 for (bundle, section) in cached?.sections ?? [:] {
                     // A fail-open placeholder or a newly arriving icon is not
@@ -287,8 +329,14 @@ final class NativeVisibilityEngine: MenuBarEngine {
                     }
                 }
             }
+            self.rememberSections(self.sectionOverrides())
+            for bundle in read.sections.keys {
+                if let remembered = self.rememberedSections[bundle] {
+                    read.sections[bundle] = remembered
+                }
+            }
             for bundle in snapshot.unreadableBundles {
-                read.sections[bundle] = cached?.sections[bundle] ?? .visible
+                read.sections[bundle] = self.rememberedSections[bundle] ?? cached?.sections[bundle] ?? .visible
             }
             read.isCached = restricted || !snapshot.unreadableBundles.intersection(self.unrestrictedIcons).isEmpty
             let icons = snapshot.iconBundles.union(restricted ? held : []).subtracting(snapshot.unreadableBundles)
