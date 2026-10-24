@@ -34,9 +34,8 @@ protocol MenuBarEngine: AnyObject {
     // Whether apps can be put in a section from Settings, without ⌘-drag.
     var supportsSectionAssignment: Bool { get }
 
-    // The effective sections shown in Settings. Native hiding remembers section
-    // membership across launches because live separator positions can drift.
-    // Returns nil when the sections cannot be read.
+    // The sections as read from where the items sit, before the per-app
+    // choices are applied. nil when they cannot be read.
     func readSections(completion: @escaping (MenuBarLayout?) -> Void)
 
     // The per-app choices changed: hide again with them. Completes with false
