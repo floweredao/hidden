@@ -263,6 +263,7 @@ final class AllowListEngineTests: XCTestCase {
     private var boundaryX: CGFloat = 1300
     private var alwaysX: CGFloat = 1000
     private var shift: CGFloat = 0
+    private var arrowShift: CGFloat = 0
     private var missingAlwaysFrame = false
     private var missingSeparatorFrame = false
     private var moves: NotificationCenter!
@@ -281,6 +282,7 @@ final class AllowListEngineTests: XCTestCase {
         boundaryX = 1300
         alwaysX = 1000
         shift = 0
+        arrowShift = 0
         missingAlwaysFrame = false
         missingSeparatorFrame = false
         moves = NotificationCenter()
@@ -292,7 +294,7 @@ final class AllowListEngineTests: XCTestCase {
     private func makeEngine() -> AllowListEngine {
         AllowListEngine(items: items, bridge: bridge, inventory: inventory,
             ownBundle: "own", frame: { [unowned self] item in
-                if item === self.items.toggleItem { return CGRect(x: 1330 + self.shift, y: 0, width: 20, height: 24) }
+                if item === self.items.toggleItem { return CGRect(x: 1330 + self.shift + self.arrowShift, y: 0, width: 20, height: 24) }
                 if item === self.items.separatorItem {
                     return self.missingSeparatorFrame ? nil : CGRect(x: self.boundaryX + self.shift, y: 0, width: 20, height: 24)
                 }
@@ -581,6 +583,34 @@ final class AllowListEngineTests: XCTestCase {
         XCTAssertEqual(bridge.requests.count, 1)
         XCTAssertEqual(bridge.restores, restores + 1)
         XCTAssertTrue(writer.pending.isEmpty)
+    }
+
+    func testUniformShiftWhileAlwaysHiddenBoundaryIsAbsentDoesNotSnapshot() {
+        let engine = makeEngine()
+        snapshot(engine)
+        engine.apply(collapsed: false, alwaysHiddenShown: false)
+        writer.run()
+        complete(0)
+        XCTAssertFalse(items.alwaysHiddenItem!.isVisible)
+        shift = 80
+        moves.post(name: NSWindow.didMoveNotification, object: arrowWindow)
+        moves.post(name: NSWindow.didMoveNotification, object: separatorWindow)
+        snapshot(engine)
+        XCTAssertEqual(inventory.snapshots, 1)
+        XCTAssertTrue(scheduler.pending.isEmpty)
+    }
+
+    func testUniformShiftWithSeparateWindowNotificationsIgnoresTransientOffset() {
+        let engine = makeEngine()
+        snapshot(engine)
+        arrowShift = 100
+        moves.post(name: NSWindow.didMoveNotification, object: arrowWindow)
+        shift = 100
+        arrowShift = 0
+        moves.post(name: NSWindow.didMoveNotification, object: separatorWindow)
+        snapshot(engine)
+        XCTAssertEqual(inventory.snapshots, 1)
+        XCTAssertTrue(scheduler.pending.isEmpty)
     }
 
 }
