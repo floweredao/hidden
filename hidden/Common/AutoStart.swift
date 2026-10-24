@@ -57,22 +57,15 @@ final class AppLifecycle {
     private let isOwner: () -> Bool
     private let recover: () -> Bool
     private let restore: () -> Bool
-    private let schedule: (@escaping () -> Void) -> Void
-    private let reply: (Bool) -> Void
     private let report: (TerminationOutcome) -> Void
-    private var isRestoring = false
 
     init(isOwner: @escaping () -> Bool,
          recover: @escaping () -> Bool,
          restore: @escaping () -> Bool,
-         schedule: @escaping (@escaping () -> Void) -> Void = { DispatchQueue.main.async(execute: $0) },
-         reply: @escaping (Bool) -> Void = { NSApp.reply(toApplicationShouldTerminate: $0) },
          report: @escaping (TerminationOutcome) -> Void = AppLifecycle.log(_:)) {
         self.isOwner = isOwner
         self.recover = recover
         self.restore = restore
-        self.schedule = schedule
-        self.reply = reply
         self.report = report
     }
 
@@ -98,13 +91,12 @@ final class AppLifecycle {
             report(.skippedDuplicate)
             return .terminateNow
         }
-        guard !isRestoring else { return .terminateLater }
-        isRestoring = true
-        schedule { [self] in
-            report(restore() ? .restored : .restoreFailed)
-            reply(true)
-        }
-        return .terminateLater
+        // The restore is synchronous, so it runs here. Deferring it with
+        // .terminateLater does not work: AppKit's wait loop does not drain the
+        // main dispatch queue, so the reply never came and the app could no
+        // longer quit at all.
+        report(restore() ? .restored : .restoreFailed)
+        return .terminateNow
     }
 
     // SIGTERM (pkill, the install script) and SIGINT (Ctrl-C) end the process
