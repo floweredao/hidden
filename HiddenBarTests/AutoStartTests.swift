@@ -113,8 +113,6 @@ final class AppLifecycleTests: XCTestCase {
 
     private final class Recorder {
         var events: [String] = []
-        var scheduled: [() -> Void] = []
-        var replies: [Bool] = []
         var outcomes: [AppLifecycle.TerminationOutcome] = []
     }
 
@@ -123,8 +121,6 @@ final class AppLifecycleTests: XCTestCase {
         AppLifecycle(isOwner: { owner },
                      recover: { recorder.events.append("recover"); return recovers },
                      restore: { recorder.events.append("restore"); return restores },
-                     schedule: { recorder.scheduled.append($0) },
-                     reply: { recorder.replies.append($0) },
                      report: { recorder.outcomes.append($0) })
     }
 
@@ -155,15 +151,12 @@ final class AppLifecycleTests: XCTestCase {
         wait(for: [delivered], timeout: 5)
     }
 
-    // L2: termination is held until the restore has run, then completed.
-    func testQuitHoldsTerminationUntilRestoreCompletes() {
+    // L2: the restore has run before termination is allowed.
+    func testQuitRestoresBeforeTerminating() {
         let recorder = Recorder()
         let lifecycle = makeLifecycle(recorder)
-        XCTAssertEqual(lifecycle.shouldTerminate(), .terminateLater)
-        XCTAssertEqual(recorder.replies, [])
-        recorder.scheduled.forEach { $0() }
+        XCTAssertEqual(lifecycle.shouldTerminate(), .terminateNow)
         XCTAssertEqual(recorder.events, ["restore"])
-        XCTAssertEqual(recorder.replies, [true])
         XCTAssertEqual(recorder.outcomes, [.restored])
     }
 
@@ -172,10 +165,8 @@ final class AppLifecycleTests: XCTestCase {
     func testQuitRestoreFailureIsReportedAndStillTerminates() {
         let recorder = Recorder()
         let lifecycle = makeLifecycle(recorder, restores: false)
-        XCTAssertEqual(lifecycle.shouldTerminate(), .terminateLater)
-        recorder.scheduled.forEach { $0() }
+        XCTAssertEqual(lifecycle.shouldTerminate(), .terminateNow)
         XCTAssertEqual(recorder.outcomes, [.restoreFailed])
-        XCTAssertEqual(recorder.replies, [true])
     }
 
     // L3: a journal left by a crash must be recovered even when the backend
@@ -204,7 +195,6 @@ final class AppLifecycleTests: XCTestCase {
         let recorder = Recorder()
         let lifecycle = makeLifecycle(recorder, owner: false)
         XCTAssertEqual(lifecycle.shouldTerminate(), .terminateNow)
-        recorder.scheduled.forEach { $0() }
         XCTAssertEqual(recorder.events, [])
         XCTAssertEqual(recorder.outcomes, [.skippedDuplicate])
     }
