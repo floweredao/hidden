@@ -36,12 +36,23 @@ protocol MenuBarInventoryProviding: AnyObject {
     // Every other app's status items, delivered on the main queue. Only meaningful
     // while nothing is hidden: once a native visibility assertion is active,
     // hidden items report stale frames.
-    func snapshot(completion: @escaping ([MenuBarInventoryItem]) -> Void)
+    func snapshot(completion: @escaping (MenuBarInventorySnapshot) -> Void)
+}
+
+struct MenuBarInventorySnapshot {
+    var items: [MenuBarInventoryItem]
+    var unreadableBundles: Set<String> = []
+    var noIconBundles: Set<String> = []
+
+    var iconBundles: Set<String> {
+        Set(items.compactMap(\.bundleIdentifier)).subtracting(unreadableBundles)
+    }
 }
 
 struct MenuBarLayout: Equatable {
     // One section per owning bundle, because hiding is per bundle.
     var sections: [String: MenuBarSection]
+    var isCached = false
 
     func bundles(in wanted: Set<MenuBarSection>) -> [String] {
         return sections.filter { wanted.contains($0.value) }.map(\.key).sorted()

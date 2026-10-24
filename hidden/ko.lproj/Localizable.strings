@@ -78,3 +78,7 @@
 
 "To hide icons while keeping the Focus and microphone indicators, Hidden Bar changes the \"Allow in the Menu Bar\" switches. Select this file to allow it." = "Focus와 마이크 표시는 남기고 아이콘만 숨기려면 Hidden Bar가 \"메뉴 막대에 허용\" 스위치를 바꿔야 합니다. 허용하려면 이 파일을 선택하세요.";
 "Allow" = "허용";
+"Grant Access…" = "접근 허용…";
+"Icons can't be hidden: Hidden Bar needs access to the Menu Bar settings file." = "아이콘을 숨길 수 없어요: 메뉴 막대 설정 파일에 접근할 권한이 필요해요.";
+"Some icons could not be restored. Try again." = "일부 아이콘을 복원하지 못했어요. 다시 시도해 주세요.";
+"Showing the last arrangement; expand to refresh positions." = "마지막 배치를 표시하고 있어요. 펼치면 위치를 새로 읽을 수 있어요.";

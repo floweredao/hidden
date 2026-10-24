@@ -21,12 +21,31 @@ extension NativeVisibilityAssertion {
 
 protocol NativeVisibilityProviding: AnyObject {
     var isAvailable: Bool { get }
+    var unavailableReason: HidingUnavailableReason { get }
+    func requestAccess()
+    @discardableResult func restoreAll() -> Bool
 
     // Keeps only these system items and apps visible. The completion runs on the
     // main queue.
     func activate(allowedSystemItems: [Int],
                   allowedBundleIdentifiers: [String],
                   completion: @escaping (Result<NativeVisibilityAssertion, Error>) -> Void)
+    func activate(allowedSystemItems: [Int],
+                  allowedBundleIdentifiers: [String],
+                  hiddenBundleIdentifiers: Set<String>,
+                  completion: @escaping (Result<NativeVisibilityAssertion, Error>) -> Void)
+}
+
+extension NativeVisibilityProviding {
+    var unavailableReason: HidingUnavailableReason { .notSupported }
+    func requestAccess() {}
+    @discardableResult func restoreAll() -> Bool { true }
+    func activate(allowedSystemItems: [Int], allowedBundleIdentifiers: [String],
+                  hiddenBundleIdentifiers: Set<String>,
+                  completion: @escaping (Result<NativeVisibilityAssertion, Error>) -> Void) {
+        activate(allowedSystemItems: allowedSystemItems,
+                 allowedBundleIdentifiers: allowedBundleIdentifiers, completion: completion)
+    }
 }
 
 final class NativeVisibilityBridge: NativeVisibilityProviding {
@@ -114,6 +133,7 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
     private let writeEntries: ((NSMutableArray) throws -> Void)?
     private let synchronizeJournal: () -> Bool
     private let diagnostic: (Diagnostic) -> Void
+    private let accessPrompt: (() -> Bool)?
     private var userOverrides = Set<String>()
     private weak var current: Handle?
 
@@ -125,7 +145,8 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
          readEntries: (() throws -> NSMutableArray)? = nil,
          writeEntries: ((NSMutableArray) throws -> Void)? = nil,
          synchronizeJournal: (() -> Bool)? = nil,
-         diagnostic: @escaping (Diagnostic) -> Void = { _ in }) {
+         diagnostic: @escaping (Diagnostic) -> Void = { _ in },
+         accessPrompt: (() -> Bool)? = nil) {
         self.defaults = defaults
         self.runningBundleIdentifiers = runningBundleIdentifiers
         self.executableURL = executableURL
@@ -133,6 +154,7 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
         self.writeEntries = writeEntries
         self.synchronizeJournal = synchronizeJournal ?? { defaults.synchronize() }
         self.diagnostic = diagnostic
+        self.accessPrompt = accessPrompt
     }
 
     var isAvailable: Bool {
@@ -142,7 +164,15 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
         return askForAccess() && (try? readTracked()) != nil
     }
 
+    var unavailableReason: HidingUnavailableReason { .fileAccessNeeded }
+
+    func requestAccess() {
+        askedThisSession = false
+        _ = isAvailable
+    }
+
     private func askForAccess() -> Bool {
+        if let prompt = accessPrompt { return prompt() }
         let panel = NSOpenPanel()
         panel.message = NSLocalizedString("To hide icons while keeping the Focus and microphone indicators, Hidden Bar changes the \"Allow in the Menu Bar\" switches. Select this file to allow it.", comment: "")
         panel.prompt = NSLocalizedString("Allow", comment: "")
@@ -183,9 +213,19 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
                   completion: @escaping (Result<NativeVisibilityAssertion, Error>) -> Void) {
         let allowed = Set(allowedBundleIdentifiers)
         let hidden = runningBundleIdentifiers().subtracting(allowed)
+        activate(allowedSystemItems: allowedSystemItems,
+                 allowedBundleIdentifiers: allowedBundleIdentifiers,
+                 hiddenBundleIdentifiers: hidden, completion: completion)
+    }
+
+    func activate(allowedSystemItems: [Int],
+                  allowedBundleIdentifiers: [String],
+                  hiddenBundleIdentifiers: Set<String>,
+                  completion: @escaping (Result<NativeVisibilityAssertion, Error>) -> Void) {
+        let allowed = Set(allowedBundleIdentifiers)
         do {
             if current == nil { userOverrides = [] }
-            let unmatched = try updateTracked(hiding: hidden, keeping: allowed)
+            let unmatched = try updateTracked(hiding: hiddenBundleIdentifiers, keeping: allowed)
             if !unmatched.isEmpty {
                 os_log("Unmatched hidden bundles: %{public}@", log: Self.log, type: .error,
                        unmatched.sorted().joined(separator: ", "))

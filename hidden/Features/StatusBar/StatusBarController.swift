@@ -8,6 +8,7 @@
 
 import AppKit
 import ApplicationServices
+import os.log
 
 class StatusBarController: MenuBarItemProvider {
     
@@ -42,8 +43,6 @@ class StatusBarController: MenuBarItemProvider {
         return menuBarEngine.isAlwaysHiddenSeparatorPlaced
     }
     
-    private var isToggle = false
-
     // Why the last collapse hid nothing, shown in the context menu and Settings
     // until a collapse succeeds. nil while hiding works.
     private(set) var hidingProblem: HidingUnavailableReason? {
@@ -55,7 +54,10 @@ class StatusBarController: MenuBarItemProvider {
 
     // Menus of this app being tracked (the context menu, Notch Overflow). The
     // pointer can be anywhere while one is driven by the keyboard.
-    private var trackedMenuCount = 0
+    private var menuTracking = OwnedMenuTracking()
+    private weak var presentedContextMenu: NSMenu?
+    private var autoCollapseDeferral = AutoCollapseDeferral()
+    private static let autoCollapseLog = OSLog(subsystem: "com.dwarvesv.minimalbar", category: "AutoCollapse")
 
     private var hoverMonitor: Any?
     private var hoverDwellTimer: Timer?
@@ -81,6 +83,7 @@ class StatusBarController: MenuBarItemProvider {
     private var isPreferencesWindowVisible: Bool {
         guard let wc = PreferencesWindowController.existing else { return false }
         return wc.isWindowLoaded && (wc.window?.isVisible ?? false)
+            && (wc.window?.isKeyWindow ?? false)
     }
     
     // Keyboard (Control-F8, or VoiceOver's menu extras) is in the menu bar or
@@ -100,12 +103,18 @@ class StatusBarController: MenuBarItemProvider {
         return (role as? String).map(menuRoles.contains) ?? false
     }
 
-    @objc private func menuBeganTracking() {
-        trackedMenuCount += 1
+    @objc private func menuBeganTracking(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu else { return }
+        var root = menu
+        while let parent = root.supermenu { root = parent }
+        let owned = root === presentedContextMenu || root === btnExpandCollapse.menu
+            || root === btnSeparate.menu || root === btnAlwaysHidden?.menu
+        menuTracking.began(menu, owned: owned)
     }
 
-    @objc private func menuEndedTracking() {
-        trackedMenuCount = max(0, trackedMenuCount - 1)
+    @objc private func menuEndedTracking(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu else { return }
+        menuTracking.ended(menu)
     }
 
     //MARK: - Methods
@@ -119,8 +128,8 @@ class StatusBarController: MenuBarItemProvider {
         NotificationCenter.default.addObserver(self, selector: #selector(sectionOverridesChanged), name: .sectionOverridesChanged, object: nil)
         // Re-presents the bar the same way: expanded drops or takes the restriction.
         NotificationCenter.default.addObserver(self, selector: #selector(sectionOverridesChanged), name: .systemIndicatorsPreferenceChanged, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(menuBeganTracking), name: NSMenu.didBeginTrackingNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(menuEndedTracking), name: NSMenu.didEndTrackingNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(menuBeganTracking(_:)), name: NSMenu.didBeginTrackingNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(menuEndedTracking(_:)), name: NSMenu.didEndTrackingNotification, object: nil)
         // Sections are read from where the items sit, so wait until macOS has put
         // them back in place before hiding the always-hidden section; read at
         // launch, the separator has no position yet.
@@ -133,6 +142,7 @@ class StatusBarController: MenuBarItemProvider {
     }
 
     deinit {
+        timer?.invalidate()
         NotificationCenter.default.removeObserver(self)
         hoverDwellTimer?.invalidate()
         if let monitor = hoverMonitor {
@@ -175,11 +185,10 @@ class StatusBarController: MenuBarItemProvider {
 
     // A choice made in Settings takes effect right away, collapsed or not.
     @objc private func sectionOverridesChanged() {
-        let wasCollapsed = isCollapsed
         menuBarEngine.reapplySections { [weak self] succeeded in
-            guard let self = self, wasCollapsed, !succeeded else { return }
-            self.hidingProblem = self.menuBarEngine.unavailableReason ?? .activationFailed
-            self.didFailToCollapseMenuBar()
+            guard let self = self else { return }
+            self.hidingProblem = self.menuBarEngine.unavailableReason
+            if !succeeded { self.didFailToCollapseMenuBar() }
         }
     }
 
@@ -269,6 +278,11 @@ class StatusBarController: MenuBarItemProvider {
     // on-screen space, growing downward from below the button.
     private func showContextMenu(from button: NSStatusBarButton) {
         let menu = getContextMenu()
+        presentedContextMenu = menu
+        defer {
+            menuTracking.ended(menu)
+            presentedContextMenu = nil
+        }
         // Anchored in screen coordinates (in: nil) at the item's bottom-left, so
         // the menu always grows downward from under the item. Anchored in the
         // button instead, a menu with the hiding-problem rows was placed with its
@@ -318,12 +332,11 @@ class StatusBarController: MenuBarItemProvider {
     }
     
     func expandCollapseIfNeeded() {
-        //prevented rapid click cause icon show many in Dock
-        if isToggle {return}
-        isToggle = true
-        self.isCollapsed ? self.expandMenubar() : self.collapseMenuBar()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            self?.isToggle = false
+        if ExpandCollapseActionResolver.shouldExpand(state: menuBarEngine.state,
+                                                     problem: menuBarEngine.unavailableReason) {
+            expandMenubar()
+        } else {
+            collapseMenuBar()
         }
     }
     
@@ -342,6 +355,8 @@ class StatusBarController: MenuBarItemProvider {
             case .unavailable:
                 self.hidingProblem = self.menuBarEngine.unavailableReason ?? .activationFailed
                 self.didFailToCollapseMenuBar()
+            case .cancelled:
+                break
             }
         }
     }
@@ -350,7 +365,7 @@ class StatusBarController: MenuBarItemProvider {
     // a permission), so show the bar as expanded, and restore the activation
     // policy in case the UI had already switched to collapsed.
     private func didFailToCollapseMenuBar() {
-        showToggle(collapsed: false)
+        showToggle(collapsed: menuBarEngine.unavailableReason == .restoreFailed)
         if Preferences.useFullStatusBarOnExpandEnabled {
             NSApp.setActivationPolicy(.regular)
         }
@@ -365,8 +380,12 @@ class StatusBarController: MenuBarItemProvider {
     }
 
     private func expandMenubar() {
-        guard self.isCollapsed else {return}
         menuBarEngine.expand()
+        hidingProblem = menuBarEngine.unavailableReason
+        guard hidingProblem != .restoreFailed else {
+            showToggle(collapsed: true)
+            return
+        }
         showToggle(collapsed: false)
         autoCollapseIfNeeded()
         
@@ -378,28 +397,48 @@ class StatusBarController: MenuBarItemProvider {
     }
     
     private func autoCollapseIfNeeded() {
-        guard Preferences.isAutoHide else {return}
-        guard !isCollapsed else { return }
+        timer?.invalidate()
+        guard Preferences.isAutoHide, !isCollapsed else { return }
 
+        autoCollapseDeferral = AutoCollapseDeferral()
         startTimerToAutoHide()
     }
 
     private func startTimerToAutoHide() {
         timer?.invalidate()
-        self.timer = Timer.scheduledTimer(withTimeInterval: Preferences.numberOfSecondForAutoHide, repeats: false) { [weak self] _ in
-            guard let self = self, Preferences.isAutoHide else { return }
-            // Don't yank the bar shut mid-interaction: while the pointer is in the
-            // menubar (hovering, clicking, dragging icons), a menu is open, or the
-            // keyboard or VoiceOver is moving through the menu bar, defer and re-arm.
-            // Intentionally unbounded; each re-arm invalidates the previous timer,
-            // so deferral never accumulates timers.
-            if self.isMouseInMenuBar || self.isPreferencesWindowVisible
-                || self.trackedMenuCount > 0 || self.isMenuBarNavigationActive {
+        let interval = max(1, Preferences.numberOfSecondForAutoHide)
+        os_log("Scheduled in %{public}.1f seconds", log: Self.autoCollapseLog, type: .info, interval)
+        let next = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            guard Preferences.isAutoHide else {
+                os_log("Cancelled: preference disabled", log: Self.autoCollapseLog, type: .info)
+                return
+            }
+            guard self.menuBarEngine.state == .expanded else {
+                os_log("Deferred: engine not expanded", log: Self.autoCollapseLog, type: .info)
+                return
+            }
+            let navigation = self.isMenuBarNavigationActive
+            let reasons = self.autoCollapseDeferral.reasons(
+                now: ProcessInfo.processInfo.systemUptime, mouseInMenuBar: self.isMouseInMenuBar,
+                preferencesEditing: self.isPreferencesWindowVisible, ownedMenuTracking: self.menuTracking.isTracking,
+                menuBarNavigation: navigation,
+                recentKeyboardInput: CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown) < 2)
+            for reason in reasons {
+                os_log("Deferred: %{public}@", log: Self.autoCollapseLog, type: .info, reason.rawValue)
+            }
+            if !reasons.isEmpty {
                 self.startTimerToAutoHide()
             } else {
+                if navigation || self.menuTracking.isTracking {
+                    os_log("Expired stale menu/navigation deferral", log: Self.autoCollapseLog, type: .info)
+                }
+                os_log("Collapsing", log: Self.autoCollapseLog, type: .info)
                 self.collapseMenuBar()
             }
         }
+        timer = next
+        RunLoop.main.add(next, forMode: .common)
     }
     
     // Built fresh on every call (see showContextMenu(from:)), so every field
@@ -407,6 +446,7 @@ class StatusBarController: MenuBarItemProvider {
     // title after the fact" step is needed for the auto-collapse item.
     private func getContextMenu() -> NSMenu {
         let menu = NSMenu()
+        hidingProblem = menuBarEngine.unavailableReason
 
         // Say why the bar does not hide, with the way to fix it, instead of
         // leaving the arrow to look broken.
@@ -414,9 +454,14 @@ class StatusBarController: MenuBarItemProvider {
             let reasonItem = NSMenuItem(title: Self.describe(problem), action: nil, keyEquivalent: "")
             reasonItem.isEnabled = false
             menu.addItem(reasonItem)
-            let fixItem = problem == .accessibilityNeeded
-                ? NSMenuItem(title: "Open Accessibility Settings…".localized, action: #selector(openAccessibilitySettings), keyEquivalent: "")
-                : NSMenuItem(title: "Try Hiding Again".localized, action: #selector(retryHiding), keyEquivalent: "")
+            let fixItem: NSMenuItem
+            if problem == .fileAccessNeeded {
+                fixItem = NSMenuItem(title: "Grant Access…".localized, action: #selector(grantAccess), keyEquivalent: "")
+            } else if problem == .accessibilityNeeded {
+                fixItem = NSMenuItem(title: "Open Accessibility Settings…".localized, action: #selector(openAccessibilitySettings), keyEquivalent: "")
+            } else {
+                fixItem = NSMenuItem(title: "Try Hiding Again".localized, action: #selector(retryHiding), keyEquivalent: "")
+            }
             fixItem.target = self
             menu.addItem(fixItem)
             menu.addItem(NSMenuItem.separator())
@@ -463,6 +508,10 @@ class StatusBarController: MenuBarItemProvider {
             return "Icons can't be hidden yet: the arrow's position can't be read.".localized
         case .activationFailed:
             return "Icons can't be hidden: macOS didn't allow it.".localized
+        case .fileAccessNeeded:
+            return "Icons can't be hidden: Hidden Bar needs access to the Menu Bar settings file.".localized
+        case .restoreFailed:
+            return "Some icons could not be restored. Try again.".localized
         }
     }
 
@@ -472,11 +521,20 @@ class StatusBarController: MenuBarItemProvider {
 
     // Collapses again, which clears the problem once hiding works.
     @objc func retryHiding() {
-        if isCollapsed {
+        if menuBarEngine.unavailableReason == .restoreFailed {
+            expandMenubar()
+        } else if menuBarEngine.unavailableReason == .fileAccessNeeded {
+            grantAccess()
+        } else if isCollapsed {
             hidingProblem = nil
         } else {
             collapseMenuBar()
         }
+    }
+
+    @objc func grantAccess() {
+        menuBarEngine.requestAccess()
+        collapseMenuBar()
     }
 
     @objc func updateAutoHide() {

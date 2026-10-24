@@ -79,3 +79,7 @@ Steps to view always hidden icons:
 
 "To hide icons while keeping the Focus and microphone indicators, Hidden Bar changes the \"Allow in the Menu Bar\" switches. Select this file to allow it." = "To hide icons while keeping the Focus and microphone indicators, Hidden Bar changes the \"Allow in the Menu Bar\" switches. Select this file to allow it.";
 "Allow" = "Allow";
+"Grant Access…" = "Grant Access…";
+"Icons can't be hidden: Hidden Bar needs access to the Menu Bar settings file." = "Icons can't be hidden: Hidden Bar needs access to the Menu Bar settings file.";
+"Some icons could not be restored. Try again." = "Some icons could not be restored. Try again.";
+"Showing the last arrangement; expand to refresh positions." = "Showing the last arrangement; expand to refresh positions.";

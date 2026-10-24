@@ -515,7 +515,9 @@ final class MenuBarItemsViewController: NSViewController {
                 : "No other app has a menu bar icon right now.".localized
             return
         }
-        statusLabel.isHidden = true
+        statusLabel.stringValue = layout?.isCached == true
+            ? "Showing the last arrangement; expand to refresh positions.".localized : ""
+        statusLabel.isHidden = layout?.isCached != true
 
         let entries = bundles.map { (bundle: $0, name: Self.displayName(of: $0)) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }

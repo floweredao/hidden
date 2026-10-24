@@ -16,6 +16,9 @@ enum ExpandCollapseAction {
 }
 
 enum ExpandCollapseActionResolver {
+    static func shouldExpand(state: MenuBarEngineState, problem: HidingUnavailableReason?) -> Bool {
+        state == .collapsed || state == .calibrating || problem == .restoreFailed
+    }
     // On macOS 27 the mouse-up event a status bar button hands to its action
     // carries empty modifier flags even while a modifier is held, so the live
     // keyboard state is consulted as well.
@@ -43,5 +46,52 @@ enum ExpandCollapseActionResolver {
         default:
             return .toggleSeparators
         }
+    }
+}
+
+// AppKit can deliver duplicate begin notifications. Identity, rather than a
+// counter, keeps one missed or unrelated end from disabling auto-collapse.
+struct OwnedMenuTracking {
+    private var menus = Set<ObjectIdentifier>()
+
+    mutating func began(_ menu: NSMenu, owned: Bool) {
+        if owned { menus.insert(ObjectIdentifier(menu)) }
+    }
+
+    mutating func ended(_ menu: NSMenu) {
+        menus.remove(ObjectIdentifier(menu))
+    }
+
+    var isTracking: Bool { !menus.isEmpty }
+}
+
+struct AutoCollapseDeferral {
+    enum Reason: String, CaseIterable {
+        case mouseInMenuBar, preferencesEditing, ownedMenuTracking, menuBarNavigation
+    }
+
+    private var softDeferralStarted: TimeInterval?
+    let maximumIdleDeferral: TimeInterval = 60
+
+    mutating func reasons(now: TimeInterval, mouseInMenuBar: Bool, preferencesEditing: Bool,
+                          ownedMenuTracking: Bool, menuBarNavigation: Bool, recentKeyboardInput: Bool) -> [Reason] {
+        var reasons: [Reason] = []
+        if mouseInMenuBar { reasons.append(.mouseInMenuBar) }
+        if preferencesEditing { reasons.append(.preferencesEditing) }
+        let soft = ownedMenuTracking || menuBarNavigation
+        if !soft || recentKeyboardInput || !reasons.isEmpty {
+            softDeferralStarted = nil
+        }
+        if soft {
+            let start = softDeferralStarted ?? now
+            softDeferralStarted = start
+            // AX focus may remain on a menu extra long after its menu closes.
+            // Actual keyboard use resets this bound; stale focus does not.
+            if now - start < maximumIdleDeferral {
+                if ownedMenuTracking { reasons.append(.ownedMenuTracking) }
+                if menuBarNavigation { reasons.append(.menuBarNavigation) }
+            }
+        }
+        return reasons
     }
 }
