@@ -1,99 +1,87 @@
-//
-//  ExpandCollapseAction.swift
-//  Hidden Bar
-//
-//  Copyright © 2026 Dwarves Foundation. All rights reserved.
-//
-
 import AppKit
 
-// What a press on the expand/collapse button should do. Kept as a pure mapping
-// so the decision is unit-testable without a live status item or a real NSEvent.
 enum ExpandCollapseAction {
     case toggle
-    case contextMenu
     case toggleSeparators
+    case none
 }
 
 enum ExpandCollapseActionResolver {
-    static func shouldExpand(state: MenuBarEngineState, problem: HidingUnavailableReason?) -> Bool {
-        state == .collapsed || state == .calibrating || problem == .restoreFailed
-    }
-    // On macOS 27 the mouse-up event a status bar button hands to its action
-    // carries empty modifier flags even while a modifier is held, so the live
-    // keyboard state is consulted as well.
     static func modifiers(eventFlags: NSEvent.ModifierFlags?, liveFlags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
-        return (eventFlags ?? []).union(liveFlags).intersection(.deviceIndependentFlagsMask)
+        (eventFlags ?? []).union(liveFlags).intersection(.deviceIndependentFlagsMask)
     }
 
-    // With the always-hidden section on, right-click shows or hides it, as the
-    // in-app tutorial teaches; with it off there is nothing to toggle, so
-    // right-click opens the context menu. Control-click is the Mac's
-    // right-click. Option-click, left or right, always opens the context menu.
-    //
-    // A nil event type means there is no real NSEvent behind the press, which is
-    // what assistive synthesis (VoiceOver AXPress) produces: treat it as a plain
-    // left click so VoiceOver users can toggle the bar at all.
-    static func action(eventType: NSEvent.EventType?, modifiers: NSEvent.ModifierFlags, alwaysHiddenSectionEnabled: Bool) -> ExpandCollapseAction {
-        guard let eventType = eventType else { return .toggle }
-        if modifiers.contains(.option) { return .contextMenu }
-        let secondaryClick: ExpandCollapseAction = alwaysHiddenSectionEnabled ? .toggleSeparators : .contextMenu
-        switch eventType {
-        case .leftMouseUp:
-            return modifiers.contains(.control) ? secondaryClick : .toggle
-        case .rightMouseUp:
-            return secondaryClick
-        case .otherMouseUp:
-            return .toggleSeparators
-        default:
-            // A key press on the focused arrow (keyboard or VoiceOver
-            // navigation) is a plain activation, so it toggles.
-            return .toggle
-        }
+    static func action(eventType: NSEvent.EventType?, modifiers: NSEvent.ModifierFlags,
+                       alwaysHiddenSectionEnabled: Bool) -> ExpandCollapseAction {
+        guard let type = eventType else { return .toggle }
+        let mouse = type == .leftMouseUp || type == .rightMouseUp || type == .otherMouseUp
+        let secondary = type == .rightMouseUp || type == .otherMouseUp
+            || (mouse && !modifiers.intersection([.control, .option]).isEmpty)
+        return secondary ? (alwaysHiddenSectionEnabled ? .toggleSeparators : .none) : .toggle
     }
 }
 
-// Pure rules the controller relies on, kept here so they are testable without
-// a live status item.
+// Keeping the decision separate lets hostless tests exercise the same render-before-write
+// path as the controller without creating real status items.
+final class MenuBarStateMachine {
+    private(set) var isCollapsed = false
+    private(set) var alwaysHiddenShown: Bool
+    private let engine: MenuBarEngine
+    private let clock: () -> TimeInterval
+    private let render: (Bool, Bool) -> Void
+    private var lastAction: TimeInterval?
+
+    init(engine: MenuBarEngine, alwaysHiddenShown: Bool,
+         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         render: @escaping (Bool, Bool) -> Void) {
+        self.engine = engine
+        self.alwaysHiddenShown = alwaysHiddenShown
+        self.clock = clock
+        self.render = render
+    }
+
+    @discardableResult func perform(_ action: ExpandCollapseAction, alwaysHiddenEnabled: Bool) -> Bool {
+        let now = clock()
+        guard lastAction.map({ now - $0 >= 0.3 }) ?? true else { return false }
+        switch action {
+        case .none: return false
+        case .toggle:
+            guard isCollapsed || engine.isArrangementValid else { return false }
+            isCollapsed.toggle()
+        case .toggleSeparators:
+            guard alwaysHiddenEnabled && engine.isAlwaysHiddenSeparatorPlaced else { return false }
+            alwaysHiddenShown.toggle()
+            isCollapsed = false
+        }
+        lastAction = now
+        synchronize()
+        return true
+    }
+
+    @discardableResult func collapse() -> Bool {
+        guard !isCollapsed && engine.isArrangementValid else { return false }
+        isCollapsed = true
+        synchronize()
+        return true
+    }
+
+    func alwaysHiddenSectionToggled() {
+        alwaysHiddenShown = true
+        synchronize()
+    }
+
+    func synchronize() {
+        render(isCollapsed, alwaysHiddenShown)
+        engine.apply(collapsed: isCollapsed, alwaysHiddenShown: alwaysHiddenShown)
+    }
+}
+
 enum MenuBarBand {
     // The visible frame stops below the bar, unless the bar auto-hides: then it
     // reaches the top of the screen and the band must come from the bar's height.
     static func minY(frame: CGRect, visibleFrame: CGRect, thickness: CGFloat) -> CGFloat {
         if visibleFrame.maxY >= frame.maxY { return frame.maxY - thickness }
         return visibleFrame.maxY
-    }
-}
-
-// Set while a collapse is outstanding. A second collapse that starts meanwhile
-// (the auto-collapse timer or the hotkey firing under the access prompt) would
-// otherwise consume the first one's completion.
-struct CollapseGate {
-    private(set) var isCollapsing = false
-
-    mutating func begin() -> Bool {
-        if isCollapsing { return false }
-        isCollapsing = true
-        return true
-    }
-
-    mutating func end() {
-        isCollapsing = false
-    }
-}
-
-enum EngineStatePresentation {
-    // The arrow shows the collapsed glyph while icons are hidden, and also while
-    // a failed restore leaves some hidden so a press retries the expansion.
-    static func showsCollapsedGlyph(state: MenuBarEngineState, problem: HidingUnavailableReason?) -> Bool {
-        return state == .collapsed || problem == .restoreFailed
-    }
-}
-
-enum InitialCollapsePolicy {
-    // Collapsing on top of a recovery that failed would hide icons again before
-    // the owner can see the restore problem.
-    static func shouldCollapse(launchRecovered: Bool) -> Bool {
-        return launchRecovered
     }
 }
 

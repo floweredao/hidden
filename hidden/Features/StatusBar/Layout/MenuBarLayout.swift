@@ -52,25 +52,11 @@ struct MenuBarInventorySnapshot {
 struct MenuBarLayout: Equatable {
     // One section per owning bundle, because hiding is per bundle.
     var sections: [String: MenuBarSection]
-    var isCached = false
 
     func bundles(in wanted: Set<MenuBarSection>) -> [String] {
         return sections.filter { wanted.contains($0.value) }.map(\.key).sorted()
     }
 
-    // The sections with the user's per-app choices from Settings on top of the
-    // ⌘-drag positions, so an app can be placed without dragging (keyboard and
-    // VoiceOver users). A chosen app counts even when it was not read from the
-    // bar, so it is never mistaken for one launched since the last read. With the
-    // always-hidden section off there is no such section, so that choice hides
-    // the app like the hidden section does.
-    func applying(overrides: [String: MenuBarSection], alwaysHiddenEnabled: Bool) -> MenuBarLayout {
-        var result = self
-        for (bundle, section) in overrides {
-            result.sections[bundle] = section == .alwaysHidden && !alwaysHiddenEnabled ? .hidden : section
-        }
-        return result
-    }
 }
 
 enum MenuBarLayoutResolver {

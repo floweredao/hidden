@@ -28,18 +28,24 @@ final class ExpandCollapseActionTests: XCTestCase {
         XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .leftMouseUp, modifiers: .control, alwaysHiddenSectionEnabled: true), .toggleSeparators)
     }
 
-    func testRightClickShowsContextMenuWithoutAlwaysHiddenSection() {
-        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .rightMouseUp, modifiers: [], alwaysHiddenSectionEnabled: false), .contextMenu)
-        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .leftMouseUp, modifiers: .control, alwaysHiddenSectionEnabled: false), .contextMenu)
+    func testSecondaryClickDoesNothingWithoutAlwaysHiddenSection() {
+        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .rightMouseUp, modifiers: [], alwaysHiddenSectionEnabled: false), .none)
+        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .leftMouseUp, modifiers: .control, alwaysHiddenSectionEnabled: false), .none)
         XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .leftMouseUp, modifiers: [], alwaysHiddenSectionEnabled: false), .toggle)
     }
 
-    func testOptionLeftShowsContextMenu() {
-        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .leftMouseUp, modifiers: .option, alwaysHiddenSectionEnabled: true), .contextMenu)
+    func testOptionAndOtherClicksDoNothingWithoutAlwaysHiddenSection() {
+        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .leftMouseUp, modifiers: .option, alwaysHiddenSectionEnabled: false), .none)
+        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .rightMouseUp, modifiers: .option, alwaysHiddenSectionEnabled: false), .none)
+        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .otherMouseUp, modifiers: [], alwaysHiddenSectionEnabled: false), .none)
     }
 
-    func testOptionRightShowsContextMenu() {
-        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .rightMouseUp, modifiers: .option, alwaysHiddenSectionEnabled: true), .contextMenu)
+    func testOptionLeftTogglesAlwaysHidden() {
+        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .leftMouseUp, modifiers: .option, alwaysHiddenSectionEnabled: true), .toggleSeparators)
+    }
+
+    func testOptionRightTogglesAlwaysHidden() {
+        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .rightMouseUp, modifiers: .option, alwaysHiddenSectionEnabled: true), .toggleSeparators)
     }
 
     func testOtherMouseEventTogglesSeparators() {
@@ -50,7 +56,7 @@ final class ExpandCollapseActionTests: XCTestCase {
     // while a modifier is physically held; the live flags must still count.
     func testModifiersComeFromLiveFlagsWhenEventFlagsAreEmpty() {
         let modifiers = ExpandCollapseActionResolver.modifiers(eventFlags: [], liveFlags: .option)
-        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .leftMouseUp, modifiers: modifiers, alwaysHiddenSectionEnabled: true), .contextMenu)
+        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .leftMouseUp, modifiers: modifiers, alwaysHiddenSectionEnabled: true), .toggleSeparators)
     }
 
     func testModifiersComeFromEventFlags() {
@@ -61,12 +67,6 @@ final class ExpandCollapseActionTests: XCTestCase {
         XCTAssertEqual(ExpandCollapseActionResolver.modifiers(eventFlags: nil, liveFlags: []), [])
     }
 
-    func testToggleDuringCalibrationCancelsAndFailedRestoreRetriesExpansion() {
-        XCTAssertTrue(ExpandCollapseActionResolver.shouldExpand(state: .calibrating, problem: nil))
-        XCTAssertTrue(ExpandCollapseActionResolver.shouldExpand(state: .collapsed, problem: nil))
-        XCTAssertTrue(ExpandCollapseActionResolver.shouldExpand(state: .unavailable, problem: .restoreFailed))
-        XCTAssertFalse(ExpandCollapseActionResolver.shouldExpand(state: .expanded, problem: nil))
-    }
 
     func testUnrelatedAndDuplicateMenuNotificationsCannotPoisonTracking() {
         var tracking = OwnedMenuTracking()
@@ -142,27 +142,105 @@ final class ExpandCollapseActionTests: XCTestCase {
         XCTAssertEqual(MenuBarBand.minY(frame: frame, visibleFrame: visible, thickness: 24), 776)
     }
 
-    func testNestedCollapseIsRefusedUntilOuterOneFinishes() {
-        var gate = CollapseGate()
-        XCTAssertTrue(gate.begin())
-        XCTAssertFalse(gate.begin())
-        XCTAssertTrue(gate.isCollapsing)
-        gate.end()
-        XCTAssertFalse(gate.isCollapsing)
-        XCTAssertTrue(gate.begin())
+
+
+}
+
+private final class FakeMenuBarEngine: MenuBarEngine {
+    var isArrangementValid = true
+    var isAlwaysHiddenSeparatorPlaced = true
+    var calls: [(Bool, Bool)] = []
+    var onApply: ((Bool, Bool) -> Void)?
+    func apply(collapsed: Bool, alwaysHiddenShown: Bool) {
+        calls.append((collapsed, alwaysHiddenShown))
+        onApply?(collapsed, alwaysHiddenShown)
+    }
+    func invalidateLayout() {}
+    func refreshArrangement() {}
+    func restoreAll() -> Bool { true }
+}
+
+final class MenuBarStateMachineTests: XCTestCase {
+    func testGesturesRenderBeforeExactlyOneEngineCall() {
+        let engine = FakeMenuBarEngine()
+        var now: TimeInterval = 0
+        var glyphCollapsed = false
+        var displayedAlwaysHidden = false
+        let state = MenuBarStateMachine(engine: engine, alwaysHiddenShown: false, clock: { now }) {
+            glyphCollapsed = $0
+            displayedAlwaysHidden = $1
+        }
+        engine.onApply = { collapsed, shown in
+            XCTAssertEqual(glyphCollapsed, collapsed)
+            XCTAssertEqual(displayedAlwaysHidden, shown)
+        }
+        XCTAssertTrue(state.perform(.toggle, alwaysHiddenEnabled: true))
+        XCTAssertTrue(state.isCollapsed)
+        XCTAssertEqual(engine.calls.count, 1)
+        now = 0.3
+        XCTAssertTrue(state.perform(.toggleSeparators, alwaysHiddenEnabled: true))
+        XCTAssertFalse(state.isCollapsed)
+        XCTAssertTrue(state.alwaysHiddenShown)
+        XCTAssertEqual(engine.calls.count, 2)
+        now = 1
+        XCTAssertTrue(state.perform(.toggle, alwaysHiddenEnabled: true))
+        XCTAssertEqual(engine.calls.count, 3)
     }
 
-    // A background re-activation that failed leaves the engine expanded; the
-    // arrow must follow the engine instead of keeping the collapsed glyph.
-    func testGlyphFollowsEngineStateAfterBackgroundChange() {
-        XCTAssertTrue(EngineStatePresentation.showsCollapsedGlyph(state: .collapsed, problem: nil))
-        XCTAssertFalse(EngineStatePresentation.showsCollapsedGlyph(state: .expanded, problem: .activationFailed))
-        XCTAssertTrue(EngineStatePresentation.showsCollapsedGlyph(state: .expanded, problem: .restoreFailed))
-        XCTAssertFalse(EngineStatePresentation.showsCollapsedGlyph(state: .expanded, problem: nil))
+    func testDebounceStartsAfterLastAcceptedGesture() {
+        let engine = FakeMenuBarEngine()
+        var now: TimeInterval = 0
+        let state = MenuBarStateMachine(engine: engine, alwaysHiddenShown: true, clock: { now }) { _, _ in }
+        XCTAssertTrue(state.perform(.toggle, alwaysHiddenEnabled: true))
+        now = 0.29
+        XCTAssertFalse(state.perform(.toggle, alwaysHiddenEnabled: true))
+        now = 0.3
+        XCTAssertTrue(state.perform(.toggle, alwaysHiddenEnabled: true))
+        now = 0.59
+        XCTAssertFalse(state.perform(.toggleSeparators, alwaysHiddenEnabled: true))
+        XCTAssertEqual(engine.calls.count, 2)
     }
 
-    func testFailedLaunchRecoveryBlocksInitialCollapse() {
-        XCTAssertFalse(InitialCollapsePolicy.shouldCollapse(launchRecovered: false))
-        XCTAssertTrue(InitialCollapsePolicy.shouldCollapse(launchRecovered: true))
+    func testInvalidArrangementAndDisabledSecondaryActionMakeNoCalls() {
+        let engine = FakeMenuBarEngine()
+        engine.isArrangementValid = false
+        let state = MenuBarStateMachine(engine: engine, alwaysHiddenShown: true) { _, _ in
+            XCTFail("A refused gesture must not render")
+        }
+        XCTAssertFalse(state.perform(.toggle, alwaysHiddenEnabled: true))
+        XCTAssertFalse(state.perform(.toggleSeparators, alwaysHiddenEnabled: false))
+        engine.isAlwaysHiddenSeparatorPlaced = false
+        XCTAssertFalse(state.perform(.toggleSeparators, alwaysHiddenEnabled: true))
+        XCTAssertFalse(state.perform(.none, alwaysHiddenEnabled: false))
+        XCTAssertFalse(state.collapse())
+        XCTAssertTrue(engine.calls.isEmpty)
+    }
+
+    func testLaunchAppliesStoredStateBeforeInitialCollapse() {
+        let engine = FakeMenuBarEngine()
+        let state = MenuBarStateMachine(engine: engine, alwaysHiddenShown: false) { _, _ in }
+        state.synchronize()
+        XCTAssertFalse(engine.calls[0].0)
+        XCTAssertFalse(engine.calls[0].1)
+        state.collapse()
+        XCTAssertTrue(engine.calls[1].0)
+        XCTAssertFalse(engine.calls[1].1)
+        state.collapse()
+        XCTAssertEqual(engine.calls.count, 2)
+    }
+
+    func testPreferencesToggleForcesAlwaysHiddenShownWithoutRestart() {
+        let engine = FakeMenuBarEngine()
+        let state = MenuBarStateMachine(engine: engine, alwaysHiddenShown: false) { _, _ in }
+        state.alwaysHiddenSectionToggled()
+        XCTAssertTrue(state.alwaysHiddenShown)
+        XCTAssertEqual(engine.calls.count, 1)
+        XCTAssertTrue(engine.calls[0].1)
+        state.collapse()
+        let before = engine.calls.count
+        state.alwaysHiddenSectionToggled()
+        XCTAssertTrue(state.isCollapsed)
+        XCTAssertTrue(state.alwaysHiddenShown)
+        XCTAssertEqual(engine.calls.count, before + 1)
     }
 }
