@@ -64,8 +64,11 @@ final class NativeVisibilityBridge: NativeVisibilityProviding {
 // System Settings › Menu Bar, which MenuBarAgent reads from Control Center's
 // preferences. Unlike the assessment-mode restriction, these switches leave the
 // Focus icon, the mic/camera capsule, Now Playing and Live Activities alone.
-// MenuBarAgent reads them only when it starts, so every change restarts it
-// (launchd brings it back in under a second and the bar redraws).
+// The switches are written through cfprefsd (CFPreferences with the file's
+// absolute path as the domain), which tells MenuBarAgent about the change, so it
+// applies it within a second without being restarted; a plain file write is not
+// seen until MenuBarAgent restarts, which blanks the whole menu bar. The
+// technique follows Chest (github.com/boringbar/chest, MIT).
 //
 // Only running apps that are already tracked there and not allowed are
 // switched off. Their previous values are kept in Hidden Bar's preferences
@@ -79,6 +82,11 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
 
     private let fileURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Group Containers/group.com.apple.controlcenter/Library/Preferences/group.com.apple.controlcenter.plist")
+    private static let trackedKey = "trackedApplications" as CFString
+    // An absolute path (without .plist) makes CFPreferences use that very file.
+    private var domain: CFString {
+        return fileURL.deletingPathExtension().path as CFString
+    }
     // macOS protects other apps' data: until the user picks the file once in an
     // open panel, reading it is refused. The pick is kept as a bookmark.
     private var askedThisSession = false
@@ -101,8 +109,8 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
 
     private func askForAccess() -> Bool {
         let panel = NSOpenPanel()
-        panel.message = "To hide icons while keeping the Focus and microphone indicators, Hidden Bar changes the \"Allow in the Menu Bar\" switches. Select this file to allow it.".localized
-        panel.prompt = "Allow".localized
+        panel.message = NSLocalizedString("To hide icons while keeping the Focus and microphone indicators, Hidden Bar changes the \"Allow in the Menu Bar\" switches. Select this file to allow it.", comment: "")
+        panel.prompt = NSLocalizedString("Allow", comment: "")
         panel.directoryURL = fileURL.deletingLastPathComponent()
         panel.nameFieldStringValue = fileURL.lastPathComponent
         panel.canChooseFiles = true
@@ -152,7 +160,6 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
                 return saved.removeValue(forKey: bundle) ?? isAllowed
             }
             savedValues = saved
-            Self.restartMenuBarAgent()
             let handle = Handle(owner: self)
             current = handle
             completion(.success(handle))
@@ -169,7 +176,6 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
         do {
             try updateTracked { bundle, isAllowed in saved[bundle] ?? isAllowed }
             savedValues = [:]
-            Self.restartMenuBarAgent()
         } catch {
             NSLog("AllowInMenuBar: restoring failed: \(error.localizedDescription)")
         }
@@ -186,17 +192,22 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
 
     // trackedApplications is a binary plist of alternating keys and values:
     // key {bundle: {_0: id}} (or {adhocBinary: ...}), value {location, menuItemLocations, isAllowed}.
-    private func readTracked() throws -> (root: NSMutableDictionary, entries: NSMutableArray) {
-        let data = try withFile { try Data(contentsOf: $0) }
-        guard let root = try PropertyListSerialization.propertyList(from: data, options: .mutableContainersAndLeaves, format: nil) as? NSMutableDictionary,
-              let blob = root["trackedApplications"] as? Data,
+    // MenuBarAgent adds entries on its own, so the list is always read fresh
+    // (synchronize first) and only isAllowed of existing entries is changed.
+    private func readTracked() throws -> NSMutableArray {
+        let domain = self.domain
+        let blob: Data? = try withFile { _ in
+            CFPreferencesSynchronize(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+            return CFPreferencesCopyValue(Self.trackedKey, domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? Data
+        }
+        guard let blob = blob,
               let entries = try PropertyListSerialization.propertyList(from: blob, options: .mutableContainersAndLeaves, format: nil) as? NSMutableArray
         else { throw NSError(domain: "AllowInMenuBar", code: 1) }
-        return (root, entries)
+        return entries
     }
 
     private func updateTracked(_ change: (String, Bool) -> Bool) throws {
-        let (root, entries) = try readTracked()
+        let entries = try readTracked()
         var changed = false
         var index = 0
         while index + 1 < entries.count {
@@ -212,18 +223,13 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
             }
         }
         guard changed else { return }
-        root["trackedApplications"] = try PropertyListSerialization.data(fromPropertyList: entries, format: .binary, options: 0)
-        let data = try PropertyListSerialization.data(fromPropertyList: root, format: .binary, options: 0)
-        // In place: a temporary file beside it would need access to the folder.
-        try withFile { try data.write(to: $0) }
-    }
-
-    private static func restartMenuBarAgent() {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
-        process.arguments = ["MenuBarAgent"]
-        try? process.run()
-        process.waitUntilExit()
+        let data = try PropertyListSerialization.data(fromPropertyList: entries, format: .binary, options: 0)
+        let domain = self.domain
+        let written: Bool = try withFile { _ in
+            CFPreferencesSetValue(Self.trackedKey, data as CFData, domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+            return CFPreferencesSynchronize(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        }
+        guard written else { throw NSError(domain: "AllowInMenuBar", code: 2) }
     }
 
     private final class Handle: NativeVisibilityAssertion {

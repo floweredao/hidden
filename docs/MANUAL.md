@@ -19,11 +19,11 @@ Everything Hidden Bar can do, including the parts with no UI.
 ### macOS 27, direct download build
 
 **Direct build, default:** collapsing turns off each hidden app's "Allow in
-the Menu Bar" switch (System Settings › Menu Bar) and restarts MenuBarAgent,
-which reads the switches only at start; expanding turns them back on. Icons are
-hidden completely, and the Focus icon, the mic/camera capsule, Now Playing and
-Live Activities stay. The arrow is the boundary. The bar redraws for about a
-second on each toggle. The first collapse shows an Open panel: select
+the Menu Bar" switch (System Settings › Menu Bar) through cfprefsd, which
+MenuBarAgent applies live; expanding turns them back on. Icons are hidden
+completely, and the Focus icon, the mic/camera capsule, Now Playing and Live
+Activities stay. The arrow is the boundary. The rest of the bar stays put on
+each toggle. The first collapse shows an Open panel: select
 `group.com.apple.controlcenter.plist` and click Allow (macOS protects other
 apps' data). Switch it off with
 `defaults write com.dwarvesv.minimalbar hidesWithMenuBarSettings -bool NO`.
