@@ -14,6 +14,8 @@ import os.log
 // the assessment backend uses the corresponding allow list.
 final class NativeVisibilityEngine: MenuBarEngine {
     static let systemItemsToKeep = Array(0..<64)
+    private static let registrationRetries = 30
+    private static let log = OSLog(subsystem: "com.dwarvesv.minimalbar", category: "NativeVisibility")
 
     private weak var items: MenuBarItemProvider?
     private let inventory: MenuBarInventoryProviding
@@ -28,7 +30,9 @@ final class NativeVisibilityEngine: MenuBarEngine {
     private var launchObserver: NSObjectProtocol?
     private var discovery: DispatchWorkItem?
     private var discoveryInFlight = false
-    private var retriesRemaining = 5
+    private var retriesRemaining: [String: Int] = [:]
+    private var observedIcons = Set<String>()
+    private var unrestrictedIcons = Set<String>()
 
     private(set) var state: MenuBarEngineState = .expanded
     private(set) var layout: MenuBarLayout?
@@ -108,14 +112,14 @@ final class NativeVisibilityEngine: MenuBarEngine {
         discoveryInFlight = false
         let version = generation
         state = .calibrating
-        readLayout { [weak self] read, icons, unreadable in
+        readLayout { [weak self] read, icons, unreadable, liveIcons in
             guard let self = self, self.generation == version else { return }
             guard let read = read else {
                 self.state = .expanded
                 self.report(.boundaryUnreadable)
                 return self.finishCollapses(.unavailable)
             }
-            self.remember(read, icons: icons, unreadable: unreadable)
+            self.remember(read, icons: icons, unreadable: unreadable, liveIcons: liveIcons)
             self.activate(hidesOnlyAlwaysHidden: false, version: version) { succeeded in
                 guard self.generation == version else { return }
                 self.state = succeeded ? .collapsed : (self.unavailableReason == .restoreFailed ? .unavailable : .expanded)
@@ -155,7 +159,6 @@ final class NativeVisibilityEngine: MenuBarEngine {
     }
 
     func applicationLaunched() {
-        retriesRemaining = 5
         reconcile()
     }
 
@@ -173,13 +176,13 @@ final class NativeVisibilityEngine: MenuBarEngine {
             return completion(unavailableReason != .restoreFailed)
         }
         let version = generation
-        readLayout { [weak self] read, icons, unreadable in
+        readLayout { [weak self] read, icons, unreadable, liveIcons in
             guard let self = self, self.generation == version else { return completion(false) }
             guard let read = read else {
                 self.revealAll()
                 return completion(false)
             }
-            self.remember(read, icons: icons, unreadable: unreadable)
+            self.remember(read, icons: icons, unreadable: unreadable, liveIcons: liveIcons)
             self.activate(hidesOnlyAlwaysHidden: true, version: version) { succeeded in
                 guard self.generation == version else { return completion(false) }
                 if !succeeded && self.unavailableReason == .restoreFailed { self.state = .unavailable }
@@ -192,7 +195,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
     var supportsSectionAssignment: Bool { true }
 
     func readSections(completion: @escaping (MenuBarLayout?) -> Void) {
-        readLayout { read, _, _ in completion(read) }
+        readLayout { read, _, _, _ in completion(read) }
     }
 
     func reapplySections(completion: @escaping (Bool) -> Void) {
@@ -202,10 +205,10 @@ final class NativeVisibilityEngine: MenuBarEngine {
             discovery?.cancel()
             discoveryInFlight = false
             let version = generation
-            readLayout { [weak self] read, icons, unreadable in
+            readLayout { [weak self] read, icons, unreadable, liveIcons in
                 guard let self = self, version == self.generation else { return completion(false) }
                 guard let read = read else { return completion(false) }
-                self.remember(read, icons: icons, unreadable: unreadable)
+                self.remember(read, icons: icons, unreadable: unreadable, liveIcons: liveIcons)
                 self.activate(hidesOnlyAlwaysHidden: false, version: version) { succeeded in
                     guard version == self.generation else { return completion(false) }
                     if !succeeded {
@@ -226,23 +229,25 @@ final class NativeVisibilityEngine: MenuBarEngine {
         }
     }
 
-    private func remember(_ read: MenuBarLayout, icons: Set<String>, unreadable: Set<String>) {
+    private func remember(_ read: MenuBarLayout, icons: Set<String>, unreadable: Set<String>, liveIcons: Set<String>) {
+        if assertion == nil { unrestrictedIcons = liveIcons }
         layout = read
         iconBundles = icons
         unreadableBundles = unreadable
+        observedIcons = liveIcons.union(observedIcons.intersection(unreadable))
     }
 
     // Cached hidden sections never cross coordinate epochs. A new app is
     // classified from its live frame; unreadable apps retain their old section
     // for the sheet but are excluded from new hide requests.
-    private func readLayout(_ completion: @escaping (MenuBarLayout?, Set<String>, Set<String>) -> Void) {
+    private func readLayout(_ completion: @escaping (MenuBarLayout?, Set<String>, Set<String>, Set<String>) -> Void) {
         let cached = layout
         let restricted = assertion != nil
         guard inventory.isAuthorized, let arrow = items?.toggleItem,
               let boundary = itemFrame(arrow) else {
             var read = cached
             read?.isCached = true
-            return completion(read, [], [])
+            return completion(read, [], [], [])
         }
         let alwaysFrame = alwaysHiddenEnabled && !restricted ? items?.alwaysHiddenItem.flatMap(itemFrame) : nil
         let ltr = isLTR()
@@ -252,7 +257,7 @@ final class NativeVisibilityEngine: MenuBarEngine {
         let held = activeHidden.subtracting(assertion?.unmatchedHiddenBundleIdentifiers ?? [])
         let partial = assertionHidesOnlyAlwaysHidden
         inventory.snapshot { [weak self] snapshot in
-            guard let self = self else { return completion(nil, [], []) }
+            guard let self = self else { return completion(nil, [], [], []) }
             var sectionBoundary = alwaysFrame
             if restricted && partial && self.alwaysHiddenEnabled, let cached = cached {
                 // With the separator absent, the leading edge of the live hidden
@@ -272,6 +277,9 @@ final class NativeVisibilityEngine: MenuBarEngine {
                                                      isLTR: ltr, excludingBundle: self.ownBundleIdentifier)
             if restricted {
                 for (bundle, section) in cached?.sections ?? [:] {
+                    // A fail-open placeholder or a newly arriving icon is not
+                    // an unrestricted position and must be classified again.
+                    guard section != .visible || self.unrestrictedIcons.contains(bundle) else { continue }
                     if !snapshot.noIconBundles.contains(bundle) || held.contains(bundle) {
                         // Even a previously visible app fails open if a width
                         // change moved the live arrow across its old coordinates.
@@ -282,9 +290,9 @@ final class NativeVisibilityEngine: MenuBarEngine {
             for bundle in snapshot.unreadableBundles {
                 read.sections[bundle] = cached?.sections[bundle] ?? .visible
             }
-            read.isCached = restricted || !snapshot.unreadableBundles.isEmpty
+            read.isCached = restricted || !snapshot.unreadableBundles.intersection(self.unrestrictedIcons).isEmpty
             let icons = snapshot.iconBundles.union(restricted ? held : []).subtracting(snapshot.unreadableBundles)
-            completion(read, icons, snapshot.unreadableBundles)
+            completion(read, icons, snapshot.unreadableBundles, snapshot.iconBundles)
         }
     }
 
@@ -302,6 +310,13 @@ final class NativeVisibilityEngine: MenuBarEngine {
 
     private func activate(hidesOnlyAlwaysHidden: Bool, version: Int, completion: @escaping (Bool) -> Void) {
         let requested = targets(onlyAlwaysHidden: hidesOnlyAlwaysHidden)
+        let newTargets = requested.hidden.subtracting(activeHidden)
+        for bundle in newTargets { retriesRemaining[bundle] = Self.registrationRetries }
+        retriesRemaining = retriesRemaining.filter { requested.hidden.contains($0.key) }
+        if !newTargets.isEmpty {
+            os_log("Targeting newly seen hidden-side icons: %{public}@", log: Self.log, type: .info,
+                   newTargets.sorted().joined(separator: ", "))
+        }
         let allowed = ownBundleIdentifier.map { [$0] } ?? []
         let sorted = allowed + requested.allowed.subtracting(allowed).sorted()
         // An absent item keeps its saved trailing distance. Zero width still
@@ -331,6 +346,11 @@ final class NativeVisibilityEngine: MenuBarEngine {
                 self.assertionHidesOnlyAlwaysHidden = hidesOnlyAlwaysHidden
                 self.activeHidden = requested.hidden
                 self.activeAllowed = requested.allowed
+                let exhausted = handle.unmatchedHiddenBundleIdentifiers.filter { self.retriesRemaining[$0] == 0 }
+                if !exhausted.isEmpty {
+                    os_log("Hidden-side icon registration retry gave up: %{public}@", log: Self.log, type: .error,
+                           exhausted.sorted().joined(separator: ", "))
+                }
                 if self.failedRestorations.isEmpty {
                     self.unavailableReason = nil
                 } else {
@@ -353,20 +373,27 @@ final class NativeVisibilityEngine: MenuBarEngine {
         discoveryInFlight = true
         let version = generation
         let partial = assertionHidesOnlyAlwaysHidden
-        readLayout { [weak self] read, icons, unreadable in
+        readLayout { [weak self] read, icons, unreadable, liveIcons in
             guard let self = self else { return }
             guard version == self.generation else { return }
             self.discoveryInFlight = false
             guard let read = read else { return self.scheduleDiscovery() }
-            self.remember(read, icons: icons, unreadable: unreadable)
+            let appeared = liveIcons.subtracting(self.observedIcons)
+            self.remember(read, icons: icons, unreadable: unreadable, liveIcons: liveIcons)
             let next = self.targets(onlyAlwaysHidden: partial)
+            let returned = next.hidden.intersection(appeared).intersection(self.activeHidden)
+            for bundle in returned { self.retriesRemaining[bundle] = Self.registrationRetries }
+            if !returned.isEmpty {
+                os_log("Targeting newly seen hidden-side icons: %{public}@", log: Self.log, type: .info,
+                       returned.sorted().joined(separator: ", "))
+            }
             let changed = next.hidden != self.activeHidden || next.allowed != self.activeAllowed
-            let unmatched = !(self.assertion?.unmatchedHiddenBundleIdentifiers.isEmpty ?? true)
-            if changed { self.retriesRemaining = 5 }
-            guard changed || (unmatched && self.retriesRemaining > 0) else {
+            let retrying = (self.assertion?.unmatchedHiddenBundleIdentifiers ?? [])
+                .intersection(next.hidden).filter { (self.retriesRemaining[$0] ?? 0) > 0 }
+            guard changed || !returned.isEmpty || !retrying.isEmpty else {
                 return self.scheduleDiscovery()
             }
-            if unmatched { self.retriesRemaining -= 1 }
+            for bundle in retrying { self.retriesRemaining[bundle, default: 0] -= 1 }
             self.discoveryInFlight = true
             self.activate(hidesOnlyAlwaysHidden: partial, version: version) { succeeded in
                 guard version == self.generation else { return }
@@ -381,8 +408,8 @@ final class NativeVisibilityEngine: MenuBarEngine {
 
     private func scheduleDiscovery() {
         discovery?.cancel()
-        // Polling also detects items created by an already running app. Only
-        // unmatched targets are retried, at most five times per launch/change.
+        // Registration can lag the icon by several seconds. Each appearance
+        // gets its own bounded budget; unrelated launches do not replenish it.
         discovery = schedule(1) { [weak self] in self?.reconcile() }
     }
 
@@ -419,6 +446,8 @@ final class NativeVisibilityEngine: MenuBarEngine {
         assertionHidesOnlyAlwaysHidden = false
         activeHidden = []
         activeAllowed = []
+        retriesRemaining = [:]
+        observedIcons = []
         return true
     }
 
