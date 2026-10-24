@@ -9,8 +9,10 @@ Everything Hidden Bar can do, including the parts with no UI.
   section enabled, show/hide that section and its separator; otherwise, the
   context menu.
 - **Option-click the arrow** or **click a separator** (`|`, left or right
-  button, the always-hidden one included): context menu (Preferences, Toggle
-  Auto Collapse, Quit).
+  button, the always-hidden one included): context menu with Preferences…
+  (⇧⌘P), Disable/Enable Auto Collapse (⌘T), Check for Updates… and Quit.
+  A line at the top of the menu appears only when hiding is not working, with
+  a way to fix it.
 - **Open Hidden Bar again** (Finder, Spotlight, Launchpad) while it runs: opens
   Preferences.
 - **⌘-drag** icons in the menu bar to move them across the separator: icons to
@@ -21,8 +23,10 @@ Everything Hidden Bar can do, including the parts with no UI.
 **Direct build, default:** collapsing turns off each hidden app's "Allow in
 the Menu Bar" switch (System Settings › Menu Bar) through cfprefsd, which
 MenuBarAgent applies live; expanding turns them back on. Icons are hidden
-completely, and the Focus icon, the mic/camera capsule, Now Playing and Live
-Activities stay. The arrow is the boundary. The rest of the bar stays put on
+completely. The Focus icon and the purple screen-capture dot stay visible
+while collapsed (measured on macOS 27.0.1); the mic/camera capsule has not been
+verified yet, so do not rely on it either way. The arrow is the boundary: ⌘-drag
+icons to its left to hide them, to its right to keep them visible. The rest of the bar stays put on
 each toggle. The first collapse shows an Open panel: select
 `group.com.apple.controlcenter.plist` and click Allow (macOS protects other
 apps' data). Switch it off with
@@ -56,7 +60,8 @@ collapsed stay hidden until you expand.
 - macOS's own items (clock, Wi-Fi, Sound, Control Center) always stay visible.
   Older-style extras hosted by SystemUIServer (Time Machine, ...) follow the
   arrow like apps do.
-- While Hidden Bar hides any icon, macOS also hides the Focus icon, the
+- Assessment mode only (not the default above): while Hidden Bar hides any
+  icon, macOS also hides the Focus icon, the
   mic/camera/screen-recording capsule, Now Playing and Live Activities, and
   clicking the clock does not open Notification Center. This comes with the
   only hiding mechanism macOS 27 offers (assessment mode); no allow list keeps
@@ -87,17 +92,15 @@ collapsed stay hidden until you expand.
 | Global shortcut | System-wide expand/collapse hotkey (F-keys display as F18, not Fn18) |
 | Enable always hidden section | A second zone whose icons stay hidden even when expanded; shown or hidden by right-clicking the arrow |
 | Menu Bar Items… | (macOS 27 direct build) Choose each app's section from a list instead of ⌘-dragging |
-| Show Focus and mic/camera indicators when expanded | (macOS 27 direct build, on by default) Expanding hides nothing, so macOS's indicators show; the always-hidden section shows while expanded too |
+| Show Focus and mic/camera indicators when expanded | (macOS 27 assessment mode only; not shown in the default allow-list mode, where Focus stays visible anyway) Expanding hides nothing, so macOS's indicators show; the always-hidden section shows while expanded too |
 | Use full menu bar on expanding | App becomes briefly "regular" while expanded (helps on tight menubars) |
 
-> **Always-hidden section, current behavior:** items in the always-hidden zone
-> are reliably pushed off-screen only when "hide separators" is also on
-> (right-click the arrow). With the separators visible, always-hidden items can
-> still appear after expanding. This coupling is a known limitation being
-> reworked alongside the menu-bar redesign; for now, right-click the arrow to
-> hide the separators if always-hidden items keep showing. Avoid placing critical icons in
-> the always-hidden zone until the rework lands, since a stuck off-screen item has
-> to be recovered by ⌘-dragging it back (macOS persists its position per app).
+> **Always-hidden section on macOS 27 (default allow-list mode):** icons in the
+> always-hidden zone are switched off only while that section is hidden. Expand
+> with the section hidden (right-click the arrow) and they stay off; show the
+> section and they come back. Collapsing hides every hidden-zone icon, always-hidden
+> ones included. Nothing is moved off-screen, so an icon is never stuck: show the
+> section, or quit Hidden Bar, and every switch is restored.
 
 ## Behaviors you get for free
 
@@ -129,23 +132,24 @@ To undo any of them: `defaults delete com.dwarvesv.minimalbar <key>`.
 
 | Symptom | Fix |
 |---|---|
-| Icons I want visible got hidden after an update | ⌘-drag them to the right of the separator |
+| Icons I want visible got hidden after an update | ⌘-drag them to the right of the arrow (or the separator in the older modes) |
 | Login item missing after denying it once | System Settings > General > Login Items: re-enable Hidden Bar, then toggle the pref off/on |
 | A ghost "LauncherApplication" login item from old versions | Launch the current version once; it deauthorizes the legacy item automatically |
 | App language stuck | See the `AppleLanguages` command above, or System Settings > General > Language & Region > Applications |
-| Nothing hides on a macOS 27 beta | Known (issue #360); the menu bar re-architecture broke the hiding mechanism, fix under investigation |
-| A new or just-updated app's icon shows up already hidden | Expected, see "Why new icons start hidden" below; ⌘-drag it to the right of the separator once |
+| Nothing hides on macOS 27 | Open the context menu (Option-click the arrow): the top line says why. Typical causes: the Open panel for `group.com.apple.controlcenter.plist` was cancelled, or the app has no entry in System Settings › Menu Bar yet |
+| A new or just-launched app's icon shows up hidden, or visible while collapsed | See "Why new icons start hidden" below; expand once, then ⌘-drag it to the right of the arrow |
 
 ### Why new icons start hidden
 
-Hidden Bar hides icons by widening its separator so everything to the *left* of
-it slides off-screen. macOS always inserts a brand-new menu-bar icon at the
-far-left slot, which is inside that hidden zone, so a freshly launched or updated
-app can appear "swallowed". This is macOS positioning behavior, not Hidden Bar
-moving your icon: there is no way for one app to reposition another app's menu-bar
-icon. The one-time fix is to ⌘-drag the icon to the right of the separator;
-macOS remembers that placement per app. A built-in way to keep chosen icons
-pinned is being explored as part of the larger menu-bar redesign.
+macOS always inserts a brand-new menu-bar icon at the far-left slot, which is
+inside the hidden zone to the left of the arrow, so a freshly launched or
+updated app can appear hidden. This is macOS positioning behavior, not Hidden
+Bar moving your icon: no app can reposition another app's menu-bar icon. On
+macOS 27 an app also needs an entry in System Settings › Menu Bar before it
+can be switched off, and macOS creates that entry itself, so a just-launched
+app may stay visible until you expand and collapse again. The one-time fix is
+to ⌘-drag the icon to the right of the arrow; macOS remembers that placement
+per app, or pick its section under Preferences › **Menu Bar Items…**.
 
 ## Requirements
 

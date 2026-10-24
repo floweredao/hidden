@@ -598,6 +598,7 @@ between sections to configure Hidden Bar.</string>
                                     </subviews>
                                     <constraints>
                                         <constraint firstItem="RGE-Xv-zm5" firstAttribute="centerX" secondItem="TZd-5p-NFL" secondAttribute="centerX" id="0YR-Ph-sDI"/>
+                                        <constraint firstItem="RGE-Xv-zm5" firstAttribute="top" secondItem="EVs-2B-Bqx" secondAttribute="bottom" constant="8" id="Cp7-Tt-1aB"/>
                                         <constraint firstItem="EVs-2B-Bqx" firstAttribute="leading" secondItem="vlT-cT-cRT" secondAttribute="trailing" constant="4" id="7oc-vz-2QR"/>
                                         <constraint firstAttribute="bottom" secondItem="RGE-Xv-zm5" secondAttribute="bottom" constant="8" id="BvJ-gy-2qG"/>
                                         <constraint firstItem="EVs-2B-Bqx" firstAttribute="top" secondItem="pJz-eb-ydI" secondAttribute="bottom" constant="16" id="Hpj-p4-UQa"/>
