@@ -723,3 +723,84 @@ final class OverflowCollapseEngineTests: XCTestCase {
         XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
     }
 }
+
+// MARK: - Allow in the Menu Bar entries
+
+final class AllowListTests: XCTestCase {
+    private func entry(_ key: String, locations: [NSDictionary], allowed: Bool = true) -> [Any] {
+        return [["bundle": ["_0": key]] as NSDictionary,
+                NSMutableDictionary(dictionary: ["location": ["bundle": ["_0": key]],
+                                                 "menuItemLocations": NSMutableArray(array: locations),
+                                                 "isAllowed": allowed])]
+    }
+
+    private func bundle(_ id: String) -> NSDictionary { ["bundle": ["_0": id]] }
+    private func path(_ url: String) -> NSDictionary { ["adhocBinary": ["_0": ["relative": url]]] }
+
+    private func value(_ entries: NSMutableArray, _ key: String) -> NSMutableDictionary {
+        var i = 0
+        while i + 1 < entries.count {
+            if (((entries[i] as? NSDictionary)?["bundle"] as? NSDictionary)?["_0"] as? String) == key {
+                return entries[i + 1] as! NSMutableDictionary
+            }
+            i += 2
+        }
+        fatalError("no entry \(key)")
+    }
+
+    func testHidesMatchingEntriesAndRestoresThem() {
+        let entries = NSMutableArray(array: entry("a.app", locations: [bundle("a.app")]) + entry("b.app", locations: [bundle("b.app")]))
+        var saved: [String: Bool] = [:]
+        XCTAssertTrue(AllowList.apply(hiding: ["a.app"], keeping: [], to: entries, saved: &saved))
+        XCTAssertEqual(value(entries, "a.app")["isAllowed"] as? Bool, false)
+        XCTAssertEqual(value(entries, "b.app")["isAllowed"] as? Bool, true)
+        XCTAssertEqual(saved, ["a.app": true])
+
+        XCTAssertTrue(AllowList.apply(hiding: [], keeping: [], to: entries, saved: &saved))
+        XCTAssertEqual(value(entries, "a.app")["isAllowed"] as? Bool, true)
+        XCTAssertEqual(saved, [:])
+    }
+
+    func testEntryWithOnlyAnOldBuildPathGetsTheBundleIdAdded() {
+        let old = path("file:///Users/x/.work/build/S.app/Contents/MacOS/S")
+        let entries = NSMutableArray(array: entry("local.s.app", locations: [old]))
+        var saved: [String: Bool] = [:]
+        XCTAssertTrue(AllowList.apply(hiding: ["local.s.app"], keeping: [], to: entries, saved: &saved))
+        let v = value(entries, "local.s.app")
+        XCTAssertEqual(v["isAllowed"] as? Bool, false)
+        XCTAssertEqual(AllowList.bundles(in: v["menuItemLocations"] as? NSArray), ["local.s.app"])
+        XCTAssertEqual((v["menuItemLocations"] as? NSArray)?.count, 2, "the old location is kept")
+    }
+
+    func testHelperIsMatchedThroughItsParentsEntry() {
+        let entries = NSMutableArray(array: entry("com.parent", locations: [bundle("team.helper"), bundle("com.parent")]))
+        var saved: [String: Bool] = [:]
+        _ = AllowList.apply(hiding: ["team.helper"], keeping: [], to: entries, saved: &saved)
+        XCTAssertEqual(value(entries, "com.parent")["isAllowed"] as? Bool, false)
+        XCTAssertEqual((value(entries, "com.parent")["menuItemLocations"] as? NSArray)?.count, 2, "nothing added")
+    }
+
+    func testEntryListingAVisibleHelperStaysOn() {
+        // iStat Menus: the main app runs without an icon (so it is not kept), its
+        // helper draws the icon and sits right of the arrow.
+        let entries = NSMutableArray(array: entry("com.parent", locations: [bundle("team.helper"), bundle("com.parent")]))
+        var saved: [String: Bool] = [:]
+        XCTAssertFalse(AllowList.apply(hiding: ["com.parent"], keeping: ["team.helper"], to: entries, saved: &saved))
+        XCTAssertEqual(value(entries, "com.parent")["isAllowed"] as? Bool, true)
+    }
+
+    func testAUserSwitchedOffAppStaysOffAfterRestore() {
+        let entries = NSMutableArray(array: entry("a.app", locations: [bundle("a.app")], allowed: false))
+        var saved: [String: Bool] = [:]
+        _ = AllowList.apply(hiding: ["a.app"], keeping: [], to: entries, saved: &saved)
+        XCTAssertEqual(saved, ["a.app": false])
+        _ = AllowList.apply(hiding: [], keeping: [], to: entries, saved: &saved)
+        XCTAssertEqual(value(entries, "a.app")["isAllowed"] as? Bool, false)
+    }
+
+    func testNothingToChangeReportsNoChange() {
+        let entries = NSMutableArray(array: entry("a.app", locations: [bundle("a.app")]))
+        var saved: [String: Bool] = [:]
+        XCTAssertFalse(AllowList.apply(hiding: ["not.running"], keeping: [], to: entries, saved: &saved))
+    }
+}

@@ -147,17 +147,11 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
                   allowedBundleIdentifiers: [String],
                   completion: @escaping (Result<NativeVisibilityAssertion, Error>) -> Void) {
         let allowed = Set(allowedBundleIdentifiers)
-        let running = runningBundleIdentifiers()
+        let hidden = runningBundleIdentifiers().subtracting(allowed)
         do {
             var saved = savedValues
-            try updateTracked { bundle, isAllowed in
-                let hide = running.contains(bundle) && !allowed.contains(bundle)
-                if hide {
-                    if saved[bundle] == nil { saved[bundle] = isAllowed }
-                    return false
-                }
-                // Shown again: back to the value it had before Hidden Bar.
-                return saved.removeValue(forKey: bundle) ?? isAllowed
+            try updateTracked { entries in
+                AllowList.apply(hiding: hidden, keeping: allowed, to: entries, saved: &saved)
             }
             savedValues = saved
             let handle = Handle(owner: self)
@@ -174,7 +168,10 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
         let saved = savedValues
         guard !saved.isEmpty else { return }
         do {
-            try updateTracked { bundle, isAllowed in saved[bundle] ?? isAllowed }
+            var remaining = saved
+            try updateTracked { entries in
+                AllowList.apply(hiding: [], keeping: [], to: entries, saved: &remaining)
+            }
             savedValues = [:]
         } catch {
             NSLog("AllowInMenuBar: restoring failed: \(error.localizedDescription)")
@@ -206,23 +203,9 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
         return entries
     }
 
-    private func updateTracked(_ change: (String, Bool) -> Bool) throws {
+    private func updateTracked(_ change: (NSMutableArray) -> Bool) throws {
         let entries = try readTracked()
-        var changed = false
-        var index = 0
-        while index + 1 < entries.count {
-            defer { index += 2 }
-            guard let key = entries[index] as? NSDictionary,
-                  let bundle = (key["bundle"] as? NSDictionary)?["_0"] as? String,
-                  let value = entries[index + 1] as? NSMutableDictionary,
-                  let isAllowed = value["isAllowed"] as? Bool else { continue }
-            let next = change(bundle, isAllowed)
-            if next != isAllowed {
-                value["isAllowed"] = next
-                changed = true
-            }
-        }
-        guard changed else { return }
+        guard change(entries) else { return }
         let data = try PropertyListSerialization.data(fromPropertyList: entries, format: .binary, options: 0)
         let domain = self.domain
         let written: Bool = try withFile { _ in
@@ -247,5 +230,74 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
             self.owner = nil
             owner.restoreAll()
         }
+    }
+}
+
+// Which "Allow in the Menu Bar" entries to switch for a set of apps.
+//
+// MenuBarAgent identifies a status item by its app's bundle id and applies a
+// switch live only to items whose identity is in the entry's menuItemLocations;
+// the entry's key alone is not enough (an entry left by an old build can carry
+// only that build's executable path, and then its switch is ignored). So an
+// entry is matched through menuItemLocations, and an entry keyed by a hidden app
+// whose locations lack that app's bundle id gets it added first. A helper that
+// draws the icon (iStat Menus Status) is matched the same way, through the
+// parent app's entry that lists it.
+enum AllowList {
+    static func bundles(in locations: NSArray?) -> Set<String> {
+        var result = Set<String>()
+        for case let location as NSDictionary in locations ?? [] {
+            if let id = (location["bundle"] as? NSDictionary)?["_0"] as? String {
+                result.insert(id)
+            }
+        }
+        return result
+    }
+
+    private static func keyBundle(_ key: Any) -> String? {
+        return ((key as? NSDictionary)?["bundle"] as? NSDictionary)?["_0"] as? String
+    }
+
+    // Switches off every entry listing a hidden app and no kept one (one switch
+    // governs all of an entry's items, so an entry that also lists a visible
+    // helper stays on), and puts every other entry Hidden Bar changed back to
+    // its saved value. saved maps an entry's key bundle id to the value it had
+    // before. Returns whether anything changed.
+    static func apply(hiding hidden: Set<String>, keeping kept: Set<String>, to entries: NSMutableArray, saved: inout [String: Bool]) -> Bool {
+        var changed = false
+        var pairs: [(key: String, value: NSMutableDictionary)] = []
+        var index = 0
+        while index + 1 < entries.count {
+            if let key = keyBundle(entries[index]), let value = entries[index + 1] as? NSMutableDictionary {
+                pairs.append((key, value))
+            }
+            index += 2
+        }
+        var listed = Set<String>()
+        for pair in pairs {
+            listed.formUnion(bundles(in: pair.value["menuItemLocations"] as? NSArray))
+        }
+        for pair in pairs where hidden.contains(pair.key) && !listed.contains(pair.key) {
+            let locations = (pair.value["menuItemLocations"] as? NSArray)?.mutableCopy() as? NSMutableArray ?? NSMutableArray()
+            locations.add(["bundle": ["_0": pair.key]] as NSDictionary)
+            pair.value["menuItemLocations"] = locations
+            changed = true
+        }
+        for pair in pairs {
+            guard let isAllowed = pair.value["isAllowed"] as? Bool else { continue }
+            let next: Bool
+            let locations = bundles(in: pair.value["menuItemLocations"] as? NSArray)
+            if !locations.isDisjoint(with: hidden) && locations.isDisjoint(with: kept) {
+                if saved[pair.key] == nil { saved[pair.key] = isAllowed }
+                next = false
+            } else {
+                next = saved.removeValue(forKey: pair.key) ?? isAllowed
+            }
+            if next != isAllowed {
+                pair.value["isAllowed"] = next
+                changed = true
+            }
+        }
+        return changed
     }
 }
