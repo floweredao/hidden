@@ -22,7 +22,7 @@
 Use the always hidden feature to keep your icons tidy. Here's how to set it
 Steps to enable:
 1. Enable the always hidden “|” (translucent color bar)
-2. Hold  ⌘ and drag it on the left-hand side of the normal bar, then move any icons you want to disappear on the left of that bar.
+2. Hold ⌘ and drag it to the left of the arrow, then move any icons you want to disappear to the left of that bar.
 3. Finally, please right-click on the collapse “<” icon to make it disappear.
 Steps to view always hidden icons:
 1. You right-click on “<” icon again to view and repeat the action to enable the feature.
@@ -79,3 +79,7 @@ Steps to view always hidden icons:
 
 "To hide icons while keeping the Focus and microphone indicators, Hidden Bar changes the \"Allow in the Menu Bar\" switches. Select this file to allow it." = "To hide icons while keeping the Focus and microphone indicators, Hidden Bar changes the \"Allow in the Menu Bar\" switches. Select this file to allow it.";
 "Allow" = "Allow";
+"Grant Access…" = "Grant Access…";
+"Icons can't be hidden: Hidden Bar needs access to the Menu Bar settings file." = "Icons can't be hidden: Hidden Bar needs access to the Menu Bar settings file.";
+"Some icons could not be restored. Try again." = "Some icons could not be restored. Try again.";
+"Showing the last arrangement; expand to refresh positions." = "Showing the last arrangement; expand to refresh positions.";

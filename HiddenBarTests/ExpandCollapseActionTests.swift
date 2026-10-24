@@ -60,4 +60,65 @@ final class ExpandCollapseActionTests: XCTestCase {
     func testNoModifiersWithoutEventOrLiveFlags() {
         XCTAssertEqual(ExpandCollapseActionResolver.modifiers(eventFlags: nil, liveFlags: []), [])
     }
+
+    func testToggleDuringCalibrationCancelsAndFailedRestoreRetriesExpansion() {
+        XCTAssertTrue(ExpandCollapseActionResolver.shouldExpand(state: .calibrating, problem: nil))
+        XCTAssertTrue(ExpandCollapseActionResolver.shouldExpand(state: .collapsed, problem: nil))
+        XCTAssertTrue(ExpandCollapseActionResolver.shouldExpand(state: .unavailable, problem: .restoreFailed))
+        XCTAssertFalse(ExpandCollapseActionResolver.shouldExpand(state: .expanded, problem: nil))
+    }
+
+    func testUnrelatedAndDuplicateMenuNotificationsCannotPoisonTracking() {
+        var tracking = OwnedMenuTracking()
+        let own = NSMenu()
+        let other = NSMenu()
+        tracking.began(other, owned: false)
+        XCTAssertFalse(tracking.isTracking)
+        tracking.began(own, owned: true)
+        tracking.began(own, owned: true)
+        tracking.ended(other)
+        XCTAssertTrue(tracking.isTracking)
+        tracking.ended(own)
+        XCTAssertFalse(tracking.isTracking)
+        tracking.ended(own)
+        XCTAssertFalse(tracking.isTracking)
+    }
+
+    func testEveryAutoCollapseDeferralHasADistinctReason() {
+        var policy = AutoCollapseDeferral()
+        XCTAssertEqual(policy.reasons(now: 0, mouseInMenuBar: true, preferencesEditing: true,
+                                      ownedMenuTracking: true, menuBarNavigation: true, recentKeyboardInput: false),
+                       AutoCollapseDeferral.Reason.allCases)
+    }
+
+    func testStaleMenuTrackingAndAXFocusExpireWithoutSleeping() {
+        var policy = AutoCollapseDeferral()
+        XCTAssertEqual(policy.reasons(now: 0, mouseInMenuBar: false, preferencesEditing: false,
+                                      ownedMenuTracking: true, menuBarNavigation: true, recentKeyboardInput: false),
+                       [.ownedMenuTracking, .menuBarNavigation])
+        XCTAssertTrue(policy.reasons(now: 60, mouseInMenuBar: false, preferencesEditing: false,
+                                     ownedMenuTracking: true, menuBarNavigation: true, recentKeyboardInput: false).isEmpty)
+        XCTAssertTrue(policy.reasons(now: 90, mouseInMenuBar: false, preferencesEditing: false,
+                                     ownedMenuTracking: true, menuBarNavigation: true, recentKeyboardInput: false).isEmpty)
+    }
+
+    func testRealKeyboardInteractionResetsOnlyTheIdleDeferralBound() {
+        var policy = AutoCollapseDeferral()
+        _ = policy.reasons(now: 0, mouseInMenuBar: false, preferencesEditing: false,
+                           ownedMenuTracking: false, menuBarNavigation: true, recentKeyboardInput: false)
+        XCTAssertEqual(policy.reasons(now: 60, mouseInMenuBar: false, preferencesEditing: false,
+                                      ownedMenuTracking: false, menuBarNavigation: true, recentKeyboardInput: true),
+                       [.menuBarNavigation])
+        XCTAssertTrue(policy.reasons(now: 120, mouseInMenuBar: false, preferencesEditing: false,
+                                     ownedMenuTracking: false, menuBarNavigation: true, recentKeyboardInput: false).isEmpty)
+    }
+
+    func testPointerAndActivePreferencesEditingRemainProtected() {
+        var policy = AutoCollapseDeferral()
+        for now: TimeInterval in [0, 60, 600] {
+            XCTAssertEqual(policy.reasons(now: now, mouseInMenuBar: true, preferencesEditing: true,
+                                          ownedMenuTracking: false, menuBarNavigation: false, recentKeyboardInput: false),
+                           [.mouseInMenuBar, .preferencesEditing])
+        }
+    }
 }

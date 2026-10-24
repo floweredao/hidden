@@ -32,14 +32,26 @@ private final class FakeInventory: MenuBarInventoryProviding {
     var items: [MenuBarInventoryItem] = []
     var authorizationRequests = 0
     var snapshots = 0
+    var unreadableBundles = Set<String>()
+    var noIconBundles = Set<String>()
+    var deferred = false
+    var pending: [(MenuBarInventorySnapshot) -> Void] = []
 
     func requestAuthorization() {
         authorizationRequests += 1
     }
 
-    func snapshot(completion: @escaping ([MenuBarInventoryItem]) -> Void) {
+    func snapshot(completion: @escaping (MenuBarInventorySnapshot) -> Void) {
         snapshots += 1
-        completion(items)
+        if deferred {
+            pending.append(completion)
+        } else {
+            completion(.init(items: items, unreadableBundles: unreadableBundles, noIconBundles: noIconBundles))
+        }
+    }
+
+    func deliver() {
+        pending.removeFirst()(.init(items: items, unreadableBundles: unreadableBundles, noIconBundles: noIconBundles))
     }
 }
 
@@ -47,14 +59,19 @@ private final class FakeAssertion: NativeVisibilityAssertion {
     let allowed: [String]
     private(set) var isInvalidated = false
     var onInvalidate: (() -> Void)?
+    var restoresSuccessfully = true
+    var unmatchedHiddenBundleIdentifiers = Set<String>()
+    var invalidations = 0
 
     init(allowed: [String]) {
         self.allowed = allowed
     }
 
-    func invalidate() {
-        isInvalidated = true
+    @discardableResult func invalidate() -> Bool {
+        invalidations += 1
+        isInvalidated = restoresSuccessfully
         onInvalidate?()
+        return restoresSuccessfully
     }
 }
 
@@ -63,27 +80,68 @@ private final class FakeVisibility: NativeVisibilityProviding {
     struct Request {
         let systemItems: [Int]
         let bundles: [String]
+        let hidden: Set<String>
         let completion: (Result<NativeVisibilityAssertion, Error>) -> Void
     }
 
     var isAvailable = true
     var requests: [Request] = []
+    var unavailableReason: HidingUnavailableReason = .notSupported
+    var accessRequests = 0
+    var restoresSuccessfully = true
+    var restores = 0
+
+    func requestAccess() { accessRequests += 1 }
+    func restoreAll() -> Bool {
+        restores += 1
+        return restoresSuccessfully
+    }
 
     func activate(allowedSystemItems: [Int],
                   allowedBundleIdentifiers: [String],
                   completion: @escaping (Result<NativeVisibilityAssertion, Error>) -> Void) {
-        requests.append(Request(systemItems: allowedSystemItems, bundles: allowedBundleIdentifiers, completion: completion))
+        activate(allowedSystemItems: allowedSystemItems, allowedBundleIdentifiers: allowedBundleIdentifiers,
+                 hiddenBundleIdentifiers: [], completion: completion)
+    }
+
+    func activate(allowedSystemItems: [Int], allowedBundleIdentifiers: [String],
+                  hiddenBundleIdentifiers: Set<String>,
+                  completion: @escaping (Result<NativeVisibilityAssertion, Error>) -> Void) {
+        requests.append(Request(systemItems: allowedSystemItems, bundles: allowedBundleIdentifiers,
+                                hidden: hiddenBundleIdentifiers, completion: completion))
     }
 
     @discardableResult
-    func succeed(_ index: Int) -> FakeAssertion {
+    func succeed(_ index: Int, unmatched: Set<String> = []) -> FakeAssertion {
         let assertion = FakeAssertion(allowed: requests[index].bundles)
+        assertion.unmatchedHiddenBundleIdentifiers = unmatched
         requests[index].completion(.success(assertion))
         return assertion
     }
 
     func fail(_ index: Int) {
         requests[index].completion(.failure(NSError(domain: "test", code: 1)))
+    }
+}
+
+private final class ManualScheduler {
+    var pending: [DispatchWorkItem] = []
+
+    func schedule(_ delay: TimeInterval, _ body: @escaping () -> Void) -> DispatchWorkItem {
+        let work = DispatchWorkItem(block: body)
+        pending.append(work)
+        return work
+    }
+
+    func fire() {
+        while !pending.isEmpty {
+            let work = pending.removeFirst()
+            if !work.isCancelled {
+                work.perform()
+                return
+            }
+        }
+        XCTFail("No scheduled discovery")
     }
 }
 
@@ -168,7 +226,6 @@ final class NativeVisibilityEngineTests: XCTestCase {
     private var items: FakeItems!
     private var inventory: FakeInventory!
     private var visibility: FakeVisibility!
-    private var running: [String] = []
     private let launches = NotificationCenter()
 
     override func setUp() {
@@ -177,18 +234,18 @@ final class NativeVisibilityEngineTests: XCTestCase {
         inventory = FakeInventory()
         inventory.items = [item("com.always", x: 900), item("com.hidden", x: 1100), item("com.visible", x: 1400)]
         visibility = FakeVisibility()
-        running = []
     }
 
-    private func makeEngine(keepsIndicatorsWhenExpanded: @escaping () -> Bool = { false }) -> NativeVisibilityEngine {
+    private func makeEngine(keepsIndicatorsWhenExpanded: @escaping () -> Bool = { false },
+                            schedule: @escaping (TimeInterval, @escaping () -> Void) -> DispatchWorkItem = { _, body in DispatchWorkItem(block: body) }) -> NativeVisibilityEngine {
         let items = self.items!
         return NativeVisibilityEngine(items: items, inventory: inventory, visibility: visibility,
                                       ownBundleIdentifier: "com.dwarvesv.minimalbar",
                                       itemFrame: { $0 === items.toggleItem ? separator : alwaysHiddenSeparator },
                                       isLTR: { true },
-                                      runningBundleIdentifiers: { [unowned self] in self.running },
                                       launchNotifications: launches,
-                                      keepsIndicatorsWhenExpanded: keepsIndicatorsWhenExpanded)
+                                      keepsIndicatorsWhenExpanded: keepsIndicatorsWhenExpanded,
+                                      schedule: schedule)
     }
 
     // macOS hides its indicators (Focus, the mic/camera capsule) while any
@@ -204,7 +261,7 @@ final class NativeVisibilityEngineTests: XCTestCase {
         engine.collapse { _ in }
         XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.visible"])
         let collapsed = visibility.succeed(visibility.requests.count - 1)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
 
         engine.expand()
         XCTAssertTrue(collapsed.isInvalidated)
@@ -245,7 +302,7 @@ final class NativeVisibilityEngineTests: XCTestCase {
 
         engine.collapse { _ in }
         visibility.succeed(visibility.requests.count - 1)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
 
         engine.expand()
         XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
@@ -321,7 +378,7 @@ final class NativeVisibilityEngineTests: XCTestCase {
         XCTAssertTrue(newIsActiveWhenOldDropped)
     }
 
-    func testSectionsAreNotReadWhileCollapsed() {
+    func testRestrictedReadPreservesCachedSections() {
         let engine = makeEngine()
         engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
         visibility.succeed(visibility.requests.count - 1)
@@ -332,21 +389,20 @@ final class NativeVisibilityEngineTests: XCTestCase {
         // Hidden items would report stale positions now; the cached layout is used.
         inventory.items = [item("com.visible", x: 100)]
         engine.expand()
-        XCTAssertEqual(inventory.snapshots, snapshotsBefore)
+        XCTAssertEqual(inventory.snapshots, snapshotsBefore + 1)
         XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible"])
     }
 
-    // With only the always-hidden section hidden, every other icon is on screen,
-    // so a ⌘-drag made while expanded counts on the next collapse; the hidden
-    // section's stale positions do not.
-    func testWhileOnlyAlwaysHiddenIsHiddenTheRestIsReadLive() {
+    // Hidden and always-hidden sections cannot be compared with a newer arrow.
+    func testPartialRestrictionKeepsHiddenSectionsAcrossCoordinateChanges() {
         let engine = makeEngine()
         engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
         visibility.succeed(visibility.requests.count - 1)
 
         inventory.items = [item("com.always", x: 1400), item("com.hidden", x: 1400), item("com.visible", x: 1100)]
         engine.collapse { _ in }
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden"])
+        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.visible"])
+        XCTAssertEqual(visibility.requests.last?.hidden, ["com.always", "com.hidden"])
     }
 
     // Hiding the always-hidden section takes its separator with it, as it did
@@ -358,18 +414,18 @@ final class NativeVisibilityEngineTests: XCTestCase {
         XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
 
         engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 20, "read where it is before hiding anything")
+        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false, "remove it before its neighbours are switched off")
         visibility.succeed(visibility.requests.count - 1)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
 
         engine.collapse { _ in }
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
         visibility.succeed(visibility.requests.count - 1)
 
         engine.expand()
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
         visibility.succeed(visibility.requests.count - 1)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
 
         engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
         XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
@@ -382,14 +438,15 @@ final class NativeVisibilityEngineTests: XCTestCase {
         XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
     }
 
-    func testAlwaysHiddenSeparatorEnabledWhileCollapsedHasNoWidth() {
+    func testAlwaysHiddenSeparatorEnabledWhileCollapsedIsAbsent() {
         let engine = makeEngine()
         engine.collapse { _ in }
         visibility.succeed(visibility.requests.count - 1)
 
         items.alwaysHiddenItem?.length = 20
         engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
-        XCTAssertEqual(items.alwaysHiddenItem?.length, 0)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
+        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
     }
 
     func testDisablingTheSectionRevealsItsApps() {
@@ -401,23 +458,21 @@ final class NativeVisibilityEngineTests: XCTestCase {
         XCTAssertTrue(hidingAlwaysHidden.isInvalidated)
     }
 
-    // An app launched since the sections were read is not always hidden, so it
-    // shows while expanded, at once and after a later launch.
-    func testAppsLaunchedWhileExpandedAreShown() {
-        running = ["com.early"]
+    func testIconlessRunningParentsAreNotKeptAndNewVisibleIconsAreKept() {
+        inventory.noIconBundles = ["com.early"]
         let engine = makeEngine()
         engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible", "com.early"])
+        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible"])
         visibility.succeed(visibility.requests.count - 1)
 
-        running = ["com.early", "com.late", "com.always"]
+        inventory.items.append(item("com.late", x: 1500))
         let before = visibility.requests.count
         launches.post(name: NSWorkspace.didLaunchApplicationNotification, object: nil)
         XCTAssertEqual(visibility.requests.count, before + 1)
-        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.visible", "com.early", "com.late"])
+        XCTAssertEqual(visibility.requests.last?.bundles, ["com.dwarvesv.minimalbar", "com.hidden", "com.late", "com.visible"])
     }
 
-    func testLaunchesDoNotTouchACollapsedBar() {
+    func testLaunchWithoutAnIconDoesNotChangeTargets() {
         let engine = makeEngine()
         engine.collapse { _ in }
         visibility.succeed(visibility.requests.count - 1)
@@ -437,7 +492,7 @@ final class NativeVisibilityEngineTests: XCTestCase {
 
         XCTAssertTrue(late.isInvalidated, "a restriction nobody wants any more is released")
         XCTAssertEqual(engine.state, .expanded)
-        XCTAssertEqual(results, [])
+        XCTAssertEqual(results, [.cancelled])
     }
 
     func testDisplayChangeKeepsTheBarCollapsed() {
@@ -448,6 +503,221 @@ final class NativeVisibilityEngineTests: XCTestCase {
         engine.invalidateLayout()
         XCTAssertEqual(engine.state, .collapsed)
         XCTAssertFalse(collapsed.isInvalidated)
+    }
+
+    func testCollapsedLaunchUsesLiveFrameAndRetriesUnmatchedRegistration() {
+        let clock = ManualScheduler()
+        let engine = makeEngine(schedule: clock.schedule)
+        engine.collapse { _ in }
+        visibility.succeed(0)
+        inventory.items.append(item("com.new", x: 1200))
+        launches.post(name: NSWorkspace.didLaunchApplicationNotification, object: nil)
+        XCTAssertEqual(visibility.requests[1].hidden, ["com.always", "com.hidden", "com.new"])
+        visibility.succeed(1, unmatched: ["com.new"])
+        clock.fire()
+        XCTAssertEqual(visibility.requests[2].hidden, visibility.requests[1].hidden)
+        visibility.succeed(2)
+        clock.fire()
+        XCTAssertEqual(visibility.requests.count, 3, "matched targets do not cause repeated writes")
+        XCTAssertEqual(engine.state, .collapsed)
+    }
+
+    func testNewIconInAlreadyRunningAppIsDiscoveredWithoutLaunchNotification() {
+        let clock = ManualScheduler()
+        let engine = makeEngine(schedule: clock.schedule)
+        engine.collapse { _ in }
+        visibility.succeed(0)
+        inventory.noIconBundles = ["com.late"]
+        clock.fire()
+        XCTAssertEqual(visibility.requests.count, 1)
+        inventory.noIconBundles = []
+        inventory.items.append(item("com.late", x: 1200))
+        clock.fire()
+        XCTAssertTrue(visibility.requests[1].hidden.contains("com.late"))
+    }
+
+    func testCollapsedNewIconRightOfArrowIsNeverHidden() {
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        visibility.succeed(0)
+        inventory.items.append(item("com.new", x: 1500))
+        engine.applicationLaunched()
+        XCTAssertFalse(visibility.requests[1].hidden.contains("com.new"))
+        XCTAssertTrue(visibility.requests[1].bundles.contains("com.new"))
+    }
+
+    func testPartialRestrictionClassifiesNewIconAgainstLiveHiddenSection() {
+        let engine = makeEngine()
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
+        visibility.succeed(0)
+        inventory.items.append(item("com.newAlways", x: 1050))
+        inventory.items.append(item("com.newHidden", x: 1200))
+        inventory.items.append(item("com.newVisible", x: 1500))
+        engine.applicationLaunched()
+        XCTAssertEqual(visibility.requests[1].hidden, ["com.always", "com.newAlways"])
+        XCTAssertTrue(visibility.requests[1].bundles.contains("com.newHidden"))
+        XCTAssertTrue(visibility.requests[1].bundles.contains("com.newVisible"))
+    }
+
+    func testUnmatchedRetriesAreBoundedAndExpandCancelsDiscovery() {
+        let clock = ManualScheduler()
+        let engine = makeEngine(schedule: clock.schedule)
+        engine.collapse { _ in }
+        visibility.succeed(0, unmatched: ["com.hidden"])
+        for index in 1...5 {
+            clock.fire()
+            XCTAssertEqual(visibility.requests.count, index + 1)
+            visibility.succeed(index, unmatched: ["com.hidden"])
+        }
+        clock.fire()
+        XCTAssertEqual(visibility.requests.count, 6)
+        engine.expand()
+        XCTAssertTrue(clock.pending.allSatisfy(\.isCancelled))
+    }
+
+    func testUnreadableAppKeepsSectionButIsNeverNewlyHidden() {
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        visibility.succeed(0)
+        engine.expand()
+        inventory.items.removeAll { $0.bundleIdentifier == "com.hidden" }
+        inventory.unreadableBundles = ["com.hidden", "com.unknown"]
+        engine.collapse { _ in }
+        XCTAssertEqual(engine.layout?.sections["com.hidden"], .hidden)
+        XCTAssertEqual(engine.layout?.sections["com.unknown"], .visible)
+        XCTAssertFalse(visibility.requests[1].hidden.contains("com.hidden"))
+        XCTAssertTrue(visibility.requests[1].bundles.contains("com.hidden"))
+        XCTAssertTrue(visibility.requests[1].bundles.contains("com.unknown"))
+        XCTAssertEqual(engine.layout?.isCached, true)
+    }
+
+    func testIconlessRunningAppIsNeitherHiddenNorKept() {
+        inventory.noIconBundles = ["com.parent"]
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        XCTAssertFalse(visibility.requests[0].hidden.contains("com.parent"))
+        XCTAssertFalse(visibility.requests[0].bundles.contains("com.parent"))
+    }
+
+    func testSheetReportsCachedSectionsAndNewIconsWhileCollapsed() {
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        visibility.succeed(0)
+        inventory.items = [item("com.hidden", x: 1600), item("com.new", x: 1200)]
+        var read: MenuBarLayout?
+        engine.readSections { read = $0 }
+        XCTAssertEqual(read?.isCached, true)
+        XCTAssertEqual(read?.sections["com.hidden"], .hidden)
+        XCTAssertEqual(read?.sections["com.new"], .hidden)
+        XCTAssertEqual(visibility.requests.count, 1, "the sheet must not switch apps")
+        XCTAssertNil(engine.layout?.sections["com.new"], "the sheet does not mutate engine state")
+    }
+
+    func testUnrestrictedSheetReportsFreshPositions() {
+        let engine = makeEngine()
+        var read: MenuBarLayout?
+        engine.readSections { read = $0 }
+        XCTAssertEqual(read?.isCached, false)
+    }
+
+    func testEveryConcurrentCollapseCallerCompletesOnce() {
+        let engine = makeEngine()
+        var first: [CollapseResult] = []
+        var second: [CollapseResult] = []
+        engine.collapse { first.append($0) }
+        engine.collapse { second.append($0) }
+        XCTAssertEqual(visibility.requests.count, 1)
+        visibility.succeed(0)
+        XCTAssertEqual(first, [.collapsed])
+        XCTAssertEqual(second, [.collapsed])
+    }
+
+    func testExpandCancelsEveryCallerBeforeDelayedSnapshotReturns() {
+        inventory.deferred = true
+        let engine = makeEngine()
+        var results: [CollapseResult] = []
+        engine.collapse { results.append($0) }
+        engine.collapse { results.append($0) }
+        engine.expand()
+        XCTAssertEqual(results, [.cancelled, .cancelled])
+        inventory.deliver()
+        XCTAssertTrue(visibility.requests.isEmpty)
+        XCTAssertEqual(engine.state, .expanded)
+    }
+
+    func testFailedRestoreRemainsVisibleAsProblemAndNextExpandRetries() {
+        let engine = makeEngine()
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
+        engine.collapse { _ in }
+        let handle = visibility.succeed(0)
+        handle.restoresSuccessfully = false
+        engine.expand()
+        XCTAssertEqual(engine.state, .unavailable)
+        XCTAssertEqual(engine.unavailableReason, .restoreFailed)
+        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
+        handle.restoresSuccessfully = true
+        engine.expand()
+        XCTAssertEqual(handle.invalidations, 2)
+        XCTAssertEqual(engine.state, .expanded)
+        XCTAssertNil(engine.unavailableReason)
+        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, true)
+    }
+
+    func testFailedActivationRestorationIsReportedEvenWithoutHandle() {
+        visibility.restoresSuccessfully = false
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        visibility.fail(0)
+        XCTAssertEqual(engine.unavailableReason, .restoreFailed)
+        XCTAssertEqual(engine.state, .unavailable)
+        visibility.restoresSuccessfully = true
+        engine.expand()
+        XCTAssertEqual(visibility.restores, 2)
+        XCTAssertEqual(engine.state, .expanded)
+    }
+
+    func testLateCancelledActivationRetainsFailedRestoreForRetry() {
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        engine.expand()
+        let handle = FakeAssertion(allowed: [])
+        handle.restoresSuccessfully = false
+        visibility.requests[0].completion(.success(handle))
+        XCTAssertEqual(engine.unavailableReason, .restoreFailed)
+        XCTAssertEqual(engine.state, .unavailable)
+        handle.restoresSuccessfully = true
+        engine.expand()
+        XCTAssertEqual(handle.invalidations, 2)
+        XCTAssertEqual(engine.state, .expanded)
+    }
+
+    func testSeparatorReturnsOnlyAfterRestorationCompletes() {
+        let engine = makeEngine()
+        engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: false)
+        engine.collapse { _ in }
+        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, false)
+        let handle = visibility.succeed(0)
+        XCTAssertTrue(engine.isAlwaysHiddenSeparatorPlaced, "right-click must work while the separator is absent")
+        handle.onInvalidate = {
+            XCTAssertEqual(self.items.alwaysHiddenItem?.isVisible, false)
+        }
+        engine.expand()
+        XCTAssertEqual(items.alwaysHiddenItem?.isVisible, true)
+        XCTAssertEqual(items.alwaysHiddenItem?.length, 20)
+    }
+
+    func testFileAccessFailureIsDistinctAndGrantCanRetry() {
+        visibility.isAvailable = false
+        visibility.unavailableReason = .fileAccessNeeded
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        XCTAssertEqual(engine.unavailableReason, .fileAccessNeeded)
+        engine.requestAccess()
+        XCTAssertEqual(visibility.accessRequests, 1)
+        visibility.isAvailable = true
+        engine.collapse { _ in }
+        visibility.succeed(0)
+        XCTAssertNil(engine.unavailableReason)
     }
 }
 
@@ -497,7 +767,6 @@ final class SectionOverrideTests: XCTestCase {
     private var inventory: FakeInventory!
     private var visibility: FakeVisibility!
     private var overrides: [String: MenuBarSection] = [:]
-    private var running: [String] = []
 
     override func setUp() {
         super.setUp()
@@ -506,7 +775,6 @@ final class SectionOverrideTests: XCTestCase {
         inventory.items = [item("com.always", x: 900), item("com.hidden", x: 1100), item("com.visible", x: 1400)]
         visibility = FakeVisibility()
         overrides = [:]
-        running = []
     }
 
     private func makeEngine() -> NativeVisibilityEngine {
@@ -515,9 +783,9 @@ final class SectionOverrideTests: XCTestCase {
                                       ownBundleIdentifier: "com.dwarvesv.minimalbar",
                                       itemFrame: { $0 === items.toggleItem ? separator : alwaysHiddenSeparator },
                                       isLTR: { true },
-                                      runningBundleIdentifiers: { [unowned self] in self.running },
                                       launchNotifications: NotificationCenter(),
-                                      sectionOverrides: { [unowned self] in self.overrides })
+                                      sectionOverrides: { [unowned self] in self.overrides },
+                                      schedule: { _, body in DispatchWorkItem(block: body) })
     }
 
     func testOverridesWinOverPositions() {
@@ -572,7 +840,6 @@ final class SectionOverrideTests: XCTestCase {
     // An app chosen as always hidden but not read from the bar (launched while
     // collapsed) must not be shown as "unseen" while expanded.
     func testExpandedKeepsAChosenAlwaysHiddenAppHiddenEvenIfUnread() {
-        running = ["com.late", "com.visible"]
         overrides = ["com.late": .alwaysHidden]
         let engine = makeEngine()
         engine.updateAlwaysHiddenSection(enabled: true, separatorHidden: true)
@@ -587,6 +854,25 @@ final class SectionOverrideTests: XCTestCase {
         XCTAssertEqual(read?.sections, ["com.always": .hidden, "com.hidden": .hidden, "com.visible": .visible])
         XCTAssertTrue(visibility.requests.isEmpty, "reading for Settings never changes what is hidden")
     }
+
+    func testHiddenOverrideNeverSwitchesOffAnIconlessApp() {
+        overrides = ["com.iconless": .hidden]
+        inventory.noIconBundles = ["com.iconless"]
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        XCTAssertFalse(visibility.requests[0].hidden.contains("com.iconless"))
+    }
+
+    func testChangingOverrideDoesNotHideAnAppWhoseIconDisappeared() {
+        let engine = makeEngine()
+        engine.collapse { _ in }
+        visibility.succeed(0)
+        inventory.items.removeAll { $0.bundleIdentifier == "com.visible" }
+        inventory.noIconBundles = ["com.visible"]
+        overrides = ["com.visible": .hidden]
+        engine.reapplySections { _ in }
+        XCTAssertFalse(visibility.requests[1].hidden.contains("com.visible"))
+    }
 }
 
 // MARK: - Why hiding does not work (shown to the user)
@@ -598,8 +884,8 @@ final class UnavailableReasonTests: XCTestCase {
                                       ownBundleIdentifier: "com.dwarvesv.minimalbar",
                                       itemFrame: { $0 === items.toggleItem ? separator : alwaysHiddenSeparator },
                                       isLTR: { true },
-                                      runningBundleIdentifiers: { [] },
-                                      launchNotifications: NotificationCenter())
+                                      launchNotifications: NotificationCenter(),
+                                      schedule: { _, body in DispatchWorkItem(block: body) })
     }
 
     func testEachFailureHasItsOwnReasonAndSuccessClearsIt() {
@@ -727,6 +1013,13 @@ final class OverflowCollapseEngineTests: XCTestCase {
 // MARK: - Allow in the Menu Bar entries
 
 final class AllowListTests: XCTestCase {
+    private func apply(hiding hidden: Set<String>, keeping kept: Set<String>, to entries: NSMutableArray,
+                       saved: inout AllowList.Journal) -> Bool {
+        var overrides = Set<String>()
+        return AllowList.apply(hiding: hidden, keeping: kept, to: entries, journal: &saved,
+                               userOverrides: &overrides, executableURL: { _ in nil }).changed
+    }
+
     private func entry(_ key: String, locations: [NSDictionary], allowed: Bool = true) -> [Any] {
         return [["bundle": ["_0": key]] as NSDictionary,
                 NSMutableDictionary(dictionary: ["location": ["bundle": ["_0": key]],
@@ -750,13 +1043,13 @@ final class AllowListTests: XCTestCase {
 
     func testHidesMatchingEntriesAndRestoresThem() {
         let entries = NSMutableArray(array: entry("a.app", locations: [bundle("a.app")]) + entry("b.app", locations: [bundle("b.app")]))
-        var saved: [String: Bool] = [:]
-        XCTAssertTrue(AllowList.apply(hiding: ["a.app"], keeping: [], to: entries, saved: &saved))
+        var saved: AllowList.Journal = [:]
+        XCTAssertTrue(apply(hiding: ["a.app"], keeping: [], to: entries, saved: &saved))
         XCTAssertEqual(value(entries, "a.app")["isAllowed"] as? Bool, false)
         XCTAssertEqual(value(entries, "b.app")["isAllowed"] as? Bool, true)
-        XCTAssertEqual(saved, ["a.app": true])
+        XCTAssertEqual(saved, [AllowList.identity(bundle("a.app"))!: AllowList.Record(original: true, written: false)])
 
-        XCTAssertTrue(AllowList.apply(hiding: [], keeping: [], to: entries, saved: &saved))
+        XCTAssertTrue(apply(hiding: [], keeping: [], to: entries, saved: &saved))
         XCTAssertEqual(value(entries, "a.app")["isAllowed"] as? Bool, true)
         XCTAssertEqual(saved, [:])
     }
@@ -764,8 +1057,8 @@ final class AllowListTests: XCTestCase {
     func testEntryWithOnlyAnOldBuildPathGetsTheBundleIdAdded() {
         let old = path("file:///Users/x/.work/build/S.app/Contents/MacOS/S")
         let entries = NSMutableArray(array: entry("local.s.app", locations: [old]))
-        var saved: [String: Bool] = [:]
-        XCTAssertTrue(AllowList.apply(hiding: ["local.s.app"], keeping: [], to: entries, saved: &saved))
+        var saved: AllowList.Journal = [:]
+        XCTAssertTrue(apply(hiding: ["local.s.app"], keeping: [], to: entries, saved: &saved))
         let v = value(entries, "local.s.app")
         XCTAssertEqual(v["isAllowed"] as? Bool, false)
         XCTAssertEqual(AllowList.bundles(in: v["menuItemLocations"] as? NSArray), ["local.s.app"])
@@ -774,8 +1067,8 @@ final class AllowListTests: XCTestCase {
 
     func testHelperIsMatchedThroughItsParentsEntry() {
         let entries = NSMutableArray(array: entry("com.parent", locations: [bundle("team.helper"), bundle("com.parent")]))
-        var saved: [String: Bool] = [:]
-        _ = AllowList.apply(hiding: ["team.helper"], keeping: [], to: entries, saved: &saved)
+        var saved: AllowList.Journal = [:]
+        _ = apply(hiding: ["team.helper"], keeping: [], to: entries, saved: &saved)
         XCTAssertEqual(value(entries, "com.parent")["isAllowed"] as? Bool, false)
         XCTAssertEqual((value(entries, "com.parent")["menuItemLocations"] as? NSArray)?.count, 2, "nothing added")
     }
@@ -784,23 +1077,446 @@ final class AllowListTests: XCTestCase {
         // iStat Menus: the main app runs without an icon (so it is not kept), its
         // helper draws the icon and sits right of the arrow.
         let entries = NSMutableArray(array: entry("com.parent", locations: [bundle("team.helper"), bundle("com.parent")]))
-        var saved: [String: Bool] = [:]
-        XCTAssertFalse(AllowList.apply(hiding: ["com.parent"], keeping: ["team.helper"], to: entries, saved: &saved))
+        var saved: AllowList.Journal = [:]
+        XCTAssertFalse(apply(hiding: ["com.parent"], keeping: ["team.helper"], to: entries, saved: &saved))
         XCTAssertEqual(value(entries, "com.parent")["isAllowed"] as? Bool, true)
     }
 
     func testAUserSwitchedOffAppStaysOffAfterRestore() {
         let entries = NSMutableArray(array: entry("a.app", locations: [bundle("a.app")], allowed: false))
-        var saved: [String: Bool] = [:]
-        _ = AllowList.apply(hiding: ["a.app"], keeping: [], to: entries, saved: &saved)
-        XCTAssertEqual(saved, ["a.app": false])
-        _ = AllowList.apply(hiding: [], keeping: [], to: entries, saved: &saved)
+        var saved: AllowList.Journal = [:]
+        _ = apply(hiding: ["a.app"], keeping: [], to: entries, saved: &saved)
+        XCTAssertEqual(saved, [AllowList.identity(bundle("a.app"))!: AllowList.Record(original: false, written: false)])
+        _ = apply(hiding: [], keeping: [], to: entries, saved: &saved)
         XCTAssertEqual(value(entries, "a.app")["isAllowed"] as? Bool, false)
     }
 
     func testNothingToChangeReportsNoChange() {
         let entries = NSMutableArray(array: entry("a.app", locations: [bundle("a.app")]))
-        var saved: [String: Bool] = [:]
-        XCTAssertFalse(AllowList.apply(hiding: ["not.running"], keeping: [], to: entries, saved: &saved))
+        var saved: AllowList.Journal = [:]
+        XCTAssertFalse(apply(hiding: ["not.running"], keeping: [], to: entries, saved: &saved))
+    }
+}
+
+final class MenuBarAllowListBridgeTests: XCTestCase {
+    private final class Store {
+        var entries: NSMutableArray
+        var reads = 0
+        var writes = 0
+        var failWrites = false
+        var ignoreWrites = false
+        var beforeRead: ((Int) -> Void)?
+        var beforeWrite: (() -> Void)?
+
+        init(_ entries: NSMutableArray) { self.entries = entries }
+
+        func read() throws -> NSMutableArray {
+            reads += 1
+            beforeRead?(reads)
+            return try copy(entries)
+        }
+
+        func write(_ value: NSMutableArray) throws {
+            writes += 1
+            beforeWrite?()
+            if !ignoreWrites { entries = try copy(value) }
+            // Synchronization can fail after CFPreferencesSetValue has applied.
+            if failWrites { throw NSError(domain: "TestStore", code: 1) }
+        }
+
+        private func copy(_ value: NSMutableArray) throws -> NSMutableArray {
+            let data = try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
+            return try XCTUnwrap(PropertyListSerialization.propertyList(
+                from: data, options: .mutableContainersAndLeaves, format: nil) as? NSMutableArray)
+        }
+    }
+
+    private var defaults: UserDefaults!
+    private var suite: String!
+    private let journalKey = "allowInMenuBarJournal"
+    private let pendingKey = "allowInMenuBarPending"
+
+    override func setUp() {
+        super.setUp()
+        suite = "HiddenBarTests.AllowList.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suite)!
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suite)
+        defaults = nil
+        super.tearDown()
+    }
+
+    private func bundle(_ id: String) -> NSDictionary { ["bundle": ["_0": id]] }
+    private func path(_ name: String) -> NSDictionary {
+        ["adhocBinary": ["_0": ["relative": "file:///Applications/\(name).app/Contents/MacOS/\(name)"]]]
+    }
+
+    private func entries(_ ids: [String]) -> NSMutableArray {
+        let result = NSMutableArray()
+        for id in ids {
+            result.add(bundle(id))
+            result.add(NSMutableDictionary(dictionary: ["isAllowed": true,
+                                                       "menuItemLocations": NSMutableArray(object: bundle(id))]))
+        }
+        return result
+    }
+
+    private func value(_ store: Store, _ index: Int = 0) -> NSMutableDictionary {
+        store.entries[index * 2 + 1] as! NSMutableDictionary
+    }
+
+    private func journal() throws -> AllowList.Journal {
+        try PropertyListDecoder().decode(AllowList.Journal.self, from: XCTUnwrap(defaults.data(forKey: journalKey)))
+    }
+
+    private func bridge(_ store: Store, running: Set<String> = ["a"],
+                        synchronize: (() -> Bool)? = nil,
+                        diagnostics: @escaping (MenuBarAllowListBridge.Diagnostic) -> Void = { _ in }) -> MenuBarAllowListBridge {
+        MenuBarAllowListBridge(defaults: defaults, runningBundleIdentifiers: { running },
+                              executableURL: { URL(string: "file:///Applications/\($0).app/Contents/MacOS/\($0)") },
+                              readEntries: { try store.read() }, writeEntries: { try store.write($0) },
+                              synchronizeJournal: synchronize, diagnostic: diagnostics)
+    }
+
+    private func activate(_ bridge: MenuBarAllowListBridge, keeping: [String] = []) throws -> NativeVisibilityAssertion {
+        var result: Result<NativeVisibilityAssertion, Error>?
+        bridge.activate(allowedSystemItems: [], allowedBundleIdentifiers: keeping) { result = $0 }
+        return try XCTUnwrap(result).get()
+    }
+
+    func testExplicitTargetsLeaveIconlessRunningEntriesUntouched() throws {
+        let store = Store(entries(["a", "iconless", "unreadable"]))
+        let bridge = bridge(store, running: ["a", "iconless", "unreadable"])
+        var result: Result<NativeVisibilityAssertion, Error>?
+        bridge.activate(allowedSystemItems: [], allowedBundleIdentifiers: ["unreadable"],
+                        hiddenBundleIdentifiers: ["a"]) { result = $0 }
+        let handle = try XCTUnwrap(result).get()
+        XCTAssertEqual(value(store, 0)["isAllowed"] as? Bool, false)
+        XCTAssertEqual(value(store, 1)["isAllowed"] as? Bool, true)
+        XCTAssertEqual(value(store, 2)["isAllowed"] as? Bool, true)
+        XCTAssertTrue(handle.invalidate())
+    }
+
+    func testIconlessParentDoesNotProtectHiddenHelperEntry() throws {
+        let store = Store(entries(["parent"]))
+        value(store)["menuItemLocations"] = NSMutableArray(array: [bundle("parent"), bundle("helper")])
+        let bridge = bridge(store, running: ["parent", "helper"])
+        var result: Result<NativeVisibilityAssertion, Error>?
+        bridge.activate(allowedSystemItems: [], allowedBundleIdentifiers: [],
+                        hiddenBundleIdentifiers: ["helper"]) { result = $0 }
+        let handle = try XCTUnwrap(result).get()
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+        XCTAssertTrue(handle.invalidate())
+    }
+
+    func testGrantAccessResetsCancelledPromptLatch() {
+        var prompts = 0
+        var readable = false
+        let bridge = MenuBarAllowListBridge(defaults: defaults,
+            readEntries: {
+                if !readable { throw NSError(domain: "TestAccess", code: 1) }
+                return NSMutableArray()
+            },
+            accessPrompt: {
+                prompts += 1
+                if prompts == 2 { readable = true }
+                return readable
+            })
+        XCTAssertFalse(bridge.isAvailable)
+        XCTAssertFalse(bridge.isAvailable)
+        XCTAssertEqual(prompts, 1)
+        XCTAssertEqual(bridge.unavailableReason, .fileAccessNeeded)
+        bridge.requestAccess()
+        XCTAssertEqual(prompts, 2)
+        XCTAssertTrue(bridge.isAvailable)
+    }
+
+    func testJournalIsDurableAndPendingBeforeSwitchWrite() throws {
+        let store = Store(entries(["a"]))
+        let bridge = bridge(store)
+        var persisted = false
+        store.beforeWrite = {
+            let durable = UserDefaults(suiteName: self.suite)!
+            persisted = durable.bool(forKey: self.pendingKey)
+                && durable.data(forKey: self.journalKey) != nil
+            XCTAssertEqual(try? self.journal().values.first?.original, true)
+        }
+        let handle = try activate(bridge)
+        XCTAssertTrue(persisted)
+        XCTAssertFalse(defaults.bool(forKey: pendingKey))
+        XCTAssertFalse(try journal().isEmpty)
+        XCTAssertTrue(handle.invalidate())
+    }
+
+    func testJournalSynchronizationFailureNeverWritesSwitches() {
+        let store = Store(entries(["a"]))
+        let bridge = bridge(store, synchronize: { false })
+        XCTAssertThrowsError(try activate(bridge))
+        XCTAssertEqual(store.writes, 0)
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+        XCTAssertFalse((try? journal().isEmpty) ?? true)
+        XCTAssertTrue(defaults.bool(forKey: pendingKey))
+    }
+
+    func testFailedSwitchWriteKeepsRecoveryAcrossRelaunch() throws {
+        let store = Store(entries(["a"]))
+        store.failWrites = true
+        XCTAssertThrowsError(try activate(bridge(store)))
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+        XCTAssertTrue(defaults.bool(forKey: pendingKey))
+        store.failWrites = false
+        bridge(store).restoreAfterUnexpectedExit()
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+        XCTAssertTrue(try journal().isEmpty)
+        XCTAssertFalse(defaults.bool(forKey: pendingKey))
+    }
+
+    func testPendingWithoutJournalStillRunsLaunchRecovery() {
+        let store = Store(entries(["a"]))
+        defaults.set(true, forKey: pendingKey)
+        bridge(store).restoreAfterUnexpectedExit()
+        XCTAssertFalse(defaults.bool(forKey: pendingKey))
+        XCTAssertEqual(store.writes, 0)
+        XCTAssertGreaterThanOrEqual(store.reads, 3)
+    }
+
+    func testFailedRestoreRetainsHandleForRetry() throws {
+        let store = Store(entries(["a"]))
+        let bridge = bridge(store)
+        let handle = try activate(bridge)
+        store.failWrites = true
+        XCTAssertFalse(handle.invalidate())
+        XCTAssertFalse(try journal().isEmpty)
+        // Model a failed synchronization that did not reach the external store.
+        value(store)["isAllowed"] = false
+        store.failWrites = false
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+        XCTAssertTrue(try journal().isEmpty)
+        XCTAssertTrue(handle.invalidate())
+    }
+
+    func testCompletionJournalFailureKeepsPendingRecovery() throws {
+        let store = Store(entries(["a"]))
+        var synchronizations = 0
+        let bridge = bridge(store, synchronize: {
+            synchronizations += 1
+            return synchronizations != 6
+        })
+        let handle = try activate(bridge)
+        XCTAssertFalse(handle.invalidate())
+        XCTAssertTrue(defaults.bool(forKey: pendingKey))
+        XCTAssertFalse(try journal().isEmpty)
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertTrue(try journal().isEmpty)
+    }
+
+    func testSupersededHandleCannotRestoreNewActivation() throws {
+        let store = Store(entries(["a"]))
+        let bridge = bridge(store)
+        let first = try activate(bridge)
+        let second = try activate(bridge)
+        XCTAssertTrue(first.invalidate())
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+        XCTAssertTrue(second.invalidate())
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+    }
+
+    func testMissingEntryRemainsJournaledUntilLaterRestore() throws {
+        let store = Store(entries(["a", "b"]))
+        let bridge = bridge(store, running: ["a", "b"])
+        let handle = try activate(bridge)
+        let bKey = store.entries[2]
+        let bValue = store.entries[3]
+        store.entries.removeObjects(in: NSRange(location: 2, length: 2))
+        XCTAssertFalse(handle.invalidate())
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+        XCTAssertEqual(try journal().count, 1)
+        store.entries.add(bKey)
+        store.entries.add(bValue)
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertEqual(value(store, 1)["isAllowed"] as? Bool, true)
+        XCTAssertTrue(try journal().isEmpty)
+    }
+
+    func testLaterActivationRetriesUnresolvedRestoration() throws {
+        let store = Store(entries(["a", "b"]))
+        let bridge = bridge(store, running: ["a", "b"])
+        let handle = try activate(bridge)
+        let key = store.entries[2]
+        let item = store.entries[3]
+        store.entries.removeObjects(in: NSRange(location: 2, length: 2))
+        XCTAssertFalse(handle.invalidate())
+        store.entries.add(key)
+        store.entries.add(item)
+        let next = try activate(bridge, keeping: ["a", "b"])
+        XCTAssertTrue(try journal().isEmpty)
+        XCTAssertEqual(value(store, 1)["isAllowed"] as? Bool, true)
+        XCTAssertTrue(next.invalidate())
+    }
+
+    func testRestoreRemovesOnlyLocationsAddedByHiddenBar() throws {
+        let store = Store(entries(["a"]))
+        let original = path("Old")
+        value(store)["menuItemLocations"] = NSMutableArray(object: original)
+        let bridge = bridge(store)
+        let handle = try activate(bridge)
+        XCTAssertEqual(try journal().values.first?.addedLocations, ["a"])
+        let agentLocation = bundle("agent.helper")
+        (value(store)["menuItemLocations"] as! NSMutableArray).add(agentLocation)
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertEqual(value(store)["menuItemLocations"] as? NSArray, NSArray(array: [original, agentLocation]))
+    }
+
+    func testRestorePreservesOriginallyAbsentLocationsField() throws {
+        let store = Store(entries(["a"]))
+        value(store).removeObject(forKey: "menuItemLocations")
+        let original = try store.read()
+        let bridge = bridge(store)
+        let handle = try activate(bridge)
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertEqual(store.entries, original)
+    }
+
+    func testUserChangedSwitchSurvivesRestore() throws {
+        let store = Store(entries(["a"]))
+        value(store)["isAllowed"] = false
+        let bridge = bridge(store)
+        let handle = try activate(bridge)
+        value(store)["isAllowed"] = true
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+        XCTAssertTrue(try journal().isEmpty)
+    }
+
+    func testReconcileDropsUserOverrideUntilNextCollapse() throws {
+        let store = Store(entries(["a"]))
+        let bridge = bridge(store)
+        let first = try activate(bridge)
+        value(store)["isAllowed"] = true
+        let second = try activate(bridge)
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+        XCTAssertTrue(try journal().isEmpty)
+        // Once the external change has been observed, a later off choice also
+        // belongs to the user rather than to the old recovery record.
+        value(store)["isAllowed"] = false
+        XCTAssertTrue(first.invalidate())
+        XCTAssertTrue(second.invalidate())
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+        value(store)["isAllowed"] = true
+        let third = try activate(bridge)
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+        XCTAssertTrue(third.invalidate())
+    }
+
+    func testAdhocKeyAndExecutableLocationHideAndRecover() throws {
+        let store = Store(entries(["a"]))
+        store.entries[0] = path("a")
+        value(store)["menuItemLocations"] = NSMutableArray(object: path("a"))
+        let original = try store.read()
+        let bridge = bridge(store)
+        let handle = try activate(bridge)
+        XCTAssertTrue(handle.unmatchedHiddenBundleIdentifiers.isEmpty)
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+        XCTAssertNotNil(try journal()[XCTUnwrap(AllowList.identity(path("a")))])
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertEqual(store.entries, original)
+    }
+
+    func testAdhocKeyWithBundleLocationIsNotSkipped() throws {
+        let store = Store(entries(["a"]))
+        store.entries[0] = path("Old")
+        let bridge = bridge(store)
+        let handle = try activate(bridge)
+        XCTAssertTrue(handle.unmatchedHiddenBundleIdentifiers.isEmpty)
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+        XCTAssertTrue(handle.invalidate())
+    }
+
+    func testFullKeyIdentityIsStableAndDistinguishesPaths() throws {
+        let a = NSDictionary(dictionary: ["adhocBinary": ["_0": ["relative": "file:///a", "base": "x"]], "version": 1])
+        let reordered = NSDictionary(dictionary: ["version": 1, "adhocBinary": ["_0": ["base": "x", "relative": "file:///a"]]])
+        XCTAssertEqual(try XCTUnwrap(AllowList.identity(a)), try XCTUnwrap(AllowList.identity(reordered)))
+        XCTAssertNotEqual(AllowList.identity(path("a")), AllowList.identity(path("b")))
+        XCTAssertNotEqual(AllowList.identity(a), AllowList.identity(["adhocBinary": ["_0": ["relative": "file:///a"]]]))
+    }
+
+    func testUnmatchedHiddenBundlesAreReturnedAndLogged() throws {
+        let store = Store(entries(["a"]))
+        var diagnostics: [MenuBarAllowListBridge.Diagnostic] = []
+        let bridge = bridge(store, running: ["a", "missing"], diagnostics: { diagnostics.append($0) })
+        let handle = try activate(bridge)
+        XCTAssertEqual(handle.unmatchedHiddenBundleIdentifiers, ["missing"])
+        XCTAssertTrue(diagnostics.contains(.unmatched(["missing"])))
+        XCTAssertTrue(handle.invalidate())
+    }
+
+    func testPostWriteReadDetectsAndLogsMismatch() {
+        let store = Store(entries(["a"]))
+        store.ignoreWrites = true
+        var diagnostics: [MenuBarAllowListBridge.Diagnostic] = []
+        let bridge = bridge(store, diagnostics: { diagnostics.append($0) })
+        XCTAssertThrowsError(try activate(bridge))
+        XCTAssertTrue(diagnostics.contains(.writeMismatch))
+        XCTAssertTrue(defaults.bool(forKey: pendingKey))
+        XCTAssertFalse((try? journal().isEmpty) ?? true)
+    }
+
+    func testLaunchAuditLogsUnmanagedDisabledEntriesWithoutWriting() {
+        let store = Store(entries(["a"]))
+        value(store)["isAllowed"] = false
+        var diagnostics: [MenuBarAllowListBridge.Diagnostic] = []
+        let bridge = bridge(store, diagnostics: { diagnostics.append($0) })
+        bridge.restoreAfterUnexpectedExit()
+        XCTAssertEqual(diagnostics, [.unmanagedDisabled(AllowList.identity(bundle("a"))!)])
+        XCTAssertEqual(store.writes, 0)
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+    }
+
+    func testLaunchAuditExcludesJournaledEntriesAndRecoversThem() throws {
+        let store = Store(entries(["a"]))
+        let bridge = bridge(store)
+        _ = try activate(bridge)
+        var diagnostics: [MenuBarAllowListBridge.Diagnostic] = []
+        self.bridge(store, diagnostics: { diagnostics.append($0) }).restoreAfterUnexpectedExit()
+        XCTAssertTrue(diagnostics.isEmpty)
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+    }
+
+    func testFreshReadPreservesConcurrentEntryAndSwitchChange() throws {
+        let store = Store(entries(["a", "b"]))
+        store.beforeRead = { count in
+            guard count == 2 else { return }
+            self.value(store, 1)["isAllowed"] = false
+            store.entries.addObjects(from: self.entries(["new"]).map { $0 })
+        }
+        let bridge = bridge(store)
+        let handle = try activate(bridge)
+        XCTAssertEqual(store.entries.count, 6)
+        XCTAssertEqual(value(store, 1)["isAllowed"] as? Bool, false)
+        XCTAssertEqual(value(store, 2)["isAllowed"] as? Bool, true)
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertEqual(value(store, 1)["isAllowed"] as? Bool, false)
+    }
+
+    func testFreshReadAfterJournalingCapturesNewOriginalValue() throws {
+        let store = Store(entries(["a"]))
+        var synchronizations = 0
+        let bridge = bridge(store, synchronize: {
+            synchronizations += 1
+            if synchronizations == 1 {
+                self.value(store)["isAllowed"] = false
+                store.entries.addObjects(from: self.entries(["new"]).map { $0 })
+            }
+            return self.defaults.synchronize()
+        })
+        let handle = try activate(bridge)
+        XCTAssertEqual(store.entries.count, 4)
+        XCTAssertEqual(try journal().values.first?.original, false)
+        XCTAssertTrue(handle.invalidate())
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+        XCTAssertEqual(value(store, 1)["isAllowed"] as? Bool, true)
     }
 }

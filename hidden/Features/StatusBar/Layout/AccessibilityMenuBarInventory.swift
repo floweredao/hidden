@@ -33,7 +33,7 @@ final class AccessibilityMenuBarInventory: MenuBarInventoryProviding {
 
     // Accessibility round-trips to every app take about a second in total, so the
     // walk runs off the main thread.
-    func snapshot(completion: @escaping ([MenuBarInventoryItem]) -> Void) {
+    func snapshot(completion: @escaping (MenuBarInventorySnapshot) -> Void) {
         // Only app bundles own status items. Skipping the rest (dozens of WebKit
         // and XPC helpers, each of which would sit out the timeout) cuts the walk
         // from ~2.8s to ~1s.
@@ -50,8 +50,8 @@ final class AccessibilityMenuBarInventory: MenuBarInventoryProviding {
     // The per-app queries are independent, and serially they add up to seconds of
     // collapse delay with many apps running, so they run concurrently. Results
     // keep the running-app order.
-    private static func statusItems(of apps: [(pid: pid_t, bundleIdentifier: String?)]) -> [MenuBarInventoryItem] {
-        var perApp = [[MenuBarInventoryItem]](repeating: [], count: apps.count)
+    private static func statusItems(of apps: [(pid: pid_t, bundleIdentifier: String?)]) -> MenuBarInventorySnapshot {
+        var perApp = [MenuBarInventorySnapshot](repeating: .init(items: []), count: apps.count)
         let lock = NSLock()
         DispatchQueue.concurrentPerform(iterations: apps.count) { index in
             let found = statusItems(of: apps[index])
@@ -59,23 +59,36 @@ final class AccessibilityMenuBarInventory: MenuBarInventoryProviding {
             perApp[index] = found
             lock.unlock()
         }
-        return perApp.flatMap { $0 }
+        return MenuBarInventorySnapshot(items: perApp.flatMap(\.items),
+                                        unreadableBundles: Set(perApp.flatMap(\.unreadableBundles)),
+                                        noIconBundles: Set(perApp.flatMap(\.noIconBundles)))
     }
 
-    private static func statusItems(of app: (pid: pid_t, bundleIdentifier: String?)) -> [MenuBarInventoryItem] {
+    private static func statusItems(of app: (pid: pid_t, bundleIdentifier: String?)) -> MenuBarInventorySnapshot {
+        let bundles = Set(app.bundleIdentifier.map { [$0] } ?? [])
+        let unreadable = MenuBarInventorySnapshot(items: [], unreadableBundles: bundles)
         let element = AXUIElementCreateApplication(app.pid)
         // The default timeout is several seconds per app, and one busy or hung
         // app then stalls the collapse (measured: ~18s on a normal session).
         AXUIElementSetMessagingTimeout(element, messagingTimeout)
         var barValue: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, "AXExtrasMenuBar" as CFString, &barValue) == .success,
-              let bar = barValue else { return [] }
+        let error = AXUIElementCopyAttributeValue(element, "AXExtrasMenuBar" as CFString, &barValue)
+        if error == .noValue || error == .attributeUnsupported {
+            return MenuBarInventorySnapshot(items: [], noIconBundles: bundles)
+        }
+        guard error == .success, let bar = barValue else { return unreadable }
         var childrenValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(bar as! AXUIElement, kAXChildrenAttribute as CFString, &childrenValue) == .success,
-              let children = childrenValue as? [AXUIElement] else { return [] }
-        return children.compactMap { child in
+              let children = childrenValue as? [AXUIElement] else { return unreadable }
+        let items = children.compactMap { child in
             frame(of: child).map { MenuBarInventoryItem(bundleIdentifier: app.bundleIdentifier, frame: $0) }
         }
+        // A missing sibling could be on the visible side. Do not hide the whole
+        // app using only the children whose frames happened to be readable.
+        guard items.count == children.count else { return unreadable }
+        let visibleItems = items.filter { $0.frame.width > 0 && $0.frame.height > 0 }
+        return MenuBarInventorySnapshot(items: visibleItems,
+                                        noIconBundles: visibleItems.isEmpty ? bundles : [])
     }
 
     // Accessibility frames use a top-left origin, AppKit's bottom-left. Only the

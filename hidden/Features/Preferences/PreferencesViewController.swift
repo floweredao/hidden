@@ -313,12 +313,14 @@ extension PreferencesViewController {
         column.insertArrangedSubview(button, at: index + 1)
     }
 
-    // While macOS 27 hides anything for Hidden Bar it also hides the Focus icon
-    // and the mic/camera capsule, and no allow list keeps them. On, the
-    // expanded bar hides nothing so they show; the always-hidden section then
-    // shows while expanded too. Placed under the always-hidden settings.
+    // Only the assessment engine hides the Focus icon and the mic/camera capsule
+    // while anything is hidden; this option makes it hide nothing when expanded
+    // so they show. The allow-list engine never wires it (Focus and the capture
+    // dot stay visible while collapsed), so the checkbox would do nothing there.
+    // Placed under the always-hidden settings.
     fileprivate func setUpSystemIndicatorsCheckBox() {
         guard MenuBarEngineFactory.usesArrowAsBoundary,
+              !MenuBarEngineFactory.usesMenuBarSettings,
               let row = checkBoxShowAlwaysHiddenSection.superview,
               let column = row.superview as? NSStackView,
               let rowIndex = column.arrangedSubviews.firstIndex(of: row) else { return }
@@ -513,7 +515,9 @@ final class MenuBarItemsViewController: NSViewController {
                 : "No other app has a menu bar icon right now.".localized
             return
         }
-        statusLabel.isHidden = true
+        statusLabel.stringValue = layout?.isCached == true
+            ? "Showing the last arrangement; expand to refresh positions.".localized : ""
+        statusLabel.isHidden = layout?.isCached != true
 
         let entries = bundles.map { (bundle: $0, name: Self.displayName(of: $0)) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }

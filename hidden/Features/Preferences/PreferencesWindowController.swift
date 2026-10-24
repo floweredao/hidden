@@ -32,6 +32,10 @@ class PreferencesWindowController: NSWindowController {
         }
     }
     
+    // Both tabs share one width: each view controller sizes the window to its
+    // own content, which made it jump between General and About.
+    private static let contentWidth: CGFloat = 724
+
     private let preferencesVC = PreferencesViewController.initWithStoryboard()
     
     private let aboutVC = AboutViewController.initWithStoryboard()
@@ -83,6 +87,9 @@ class PreferencesWindowController: NSWindowController {
             self.window?.contentViewController = preferencesVC
         case .about:
             self.window?.contentViewController = aboutVC
+        }
+        if let window = window, let content = window.contentView {
+            window.setContentSize(NSSize(width: Self.contentWidth, height: content.frame.height))
         }
     }
     

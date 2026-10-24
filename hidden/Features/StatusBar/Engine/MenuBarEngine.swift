@@ -44,6 +44,7 @@ protocol MenuBarEngine: AnyObject {
 
     // Why the last collapse hid nothing, until one succeeds. nil when hiding works.
     var unavailableReason: HidingUnavailableReason? { get }
+    func requestAccess()
 }
 
 // Why the bar could not be collapsed, shown to the user instead of only logged.
@@ -56,6 +57,8 @@ enum HidingUnavailableReason: Equatable {
     case boundaryUnreadable
     // macOS refused the request to hide.
     case activationFailed
+    case fileAccessNeeded
+    case restoreFailed
 }
 
 extension MenuBarEngine {
@@ -70,6 +73,7 @@ extension MenuBarEngine {
     }
 
     var unavailableReason: HidingUnavailableReason? { nil }
+    func requestAccess() {}
 }
 
 enum MenuBarEngineState {
@@ -82,6 +86,7 @@ enum MenuBarEngineState {
 enum CollapseResult {
     case collapsed
     case unavailable
+    case cancelled
 }
 
 enum MenuBarOrder {
