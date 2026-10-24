@@ -80,6 +80,34 @@ final class AutoStartTests: XCTestCase {
         service.error = FakeLoginItem.StubbedError()
         XCTAssertFalse(AutoStart.apply(enabled: false, service: service))
     }
+
+    // Anything but .enabled is registered again, .notFound included; the call
+    // only counts if the status then reads .enabled.
+    func testEnableRegistersWhenNotFoundAndFailsIfItStaysSo() {
+        let service = FakeLoginItem(status: .notFound)
+        XCTAssertFalse(AutoStart.apply(enabled: true, service: service))
+        XCTAssertEqual(service.registerCalls, 1)
+    }
+
+    func testEnableRegistersAgainWhilePendingApproval() {
+        let service = FakeLoginItem(status: .requiresApproval)
+        XCTAssertFalse(AutoStart.apply(enabled: true, service: service))
+        XCTAssertEqual(service.registerCalls, 1)
+    }
+
+    // A login item waiting for approval is still registered, so turning the
+    // option off must unregister it rather than treat it as already off.
+    func testDisableUnregistersWhilePendingApproval() {
+        let service = TransitioningLoginItem(initialStatus: .requiresApproval, finalStatus: .notRegistered)
+        XCTAssertTrue(AutoStart.apply(enabled: false, service: service))
+    }
+
+    func testDisableReportsFailureWhenStillPendingApproval() {
+        let service = FakeLoginItem(status: .requiresApproval)
+        XCTAssertFalse(AutoStart.apply(enabled: false, service: service))
+        XCTAssertEqual(service.unregisterCalls, 1)
+        XCTAssertEqual(service.registerCalls, 0)
+    }
 }
 
 // A fake whose register/unregister moves status to a given terminal value, like

@@ -121,4 +121,32 @@ final class ExpandCollapseActionTests: XCTestCase {
                            [.mouseInMenuBar, .preferencesEditing])
         }
     }
+
+    // Device-dependent bits (which physical Control or Shift key) are dropped,
+    // so they never make two presses of the same shortcut compare unequal.
+    func testDeviceDependentFlagsAreDropped() {
+        let leftControlKeyBit = NSEvent.ModifierFlags(rawValue: 0x1)
+        let modifiers = ExpandCollapseActionResolver.modifiers(eventFlags: [.option, leftControlKeyBit], liveFlags: [])
+        XCTAssertEqual(modifiers, .option)
+    }
+
+    func testEventAndLiveFlagsAreCombined() {
+        let modifiers = ExpandCollapseActionResolver.modifiers(eventFlags: .control, liveFlags: .option)
+        XCTAssertEqual(modifiers, [.control, .option])
+    }
+
+    func testShiftOrCommandLeftClickStillToggles() {
+        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .leftMouseUp, modifiers: .shift, alwaysHiddenSectionEnabled: true), .toggle)
+        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .leftMouseUp, modifiers: .command, alwaysHiddenSectionEnabled: true), .toggle)
+    }
+
+    func testOptionWinsOverControl() {
+        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: .leftMouseUp, modifiers: [.option, .control], alwaysHiddenSectionEnabled: true), .contextMenu)
+    }
+
+    // A press with no event is an assistive one: it toggles even while Option
+    // reads as held.
+    func testNilEventTogglesWhateverTheModifiers() {
+        XCTAssertEqual(ExpandCollapseActionResolver.action(eventType: nil, modifiers: .option, alwaysHiddenSectionEnabled: false), .toggle)
+    }
 }
