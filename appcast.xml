@@ -6,6 +6,23 @@
     <description>Updates for the floweredao fork of Hidden Bar.</description>
     <language>en</language>
     <item>
+      <title>Hidden Bar 1.11.1-fw.3</title>
+      <pubDate>Sun, 25 Oct 2026 01:26:20 +0000</pubDate>
+      <sparkle:version>16003</sparkle:version>
+      <sparkle:shortVersionString>1.11.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/floweredao/hidden/releases/tag/v1.11.1-fw.3</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[
+        <h2>Hidden Bar 1.11.1-fw.3</h2>
+        <ul>
+          <li>No more lag: the arrow changes the moment you click, and the icons follow right after.</li>
+          <li>Left-click collapses and expands; right-click (or Control/Option-click) shows or hides the always-hidden section, like the classic app.</li>
+          <li>The arrow points the right way again, and Hidden Bar uses almost no CPU while idle.</li>
+        </ul>
+      ]]></description>
+      <enclosure url="https://github.com/floweredao/hidden/releases/download/v1.11.1-fw.3/Hidden-Bar-1.11.1-fw.3.zip" type="application/octet-stream" sparkle:edSignature="A4smjaPKdpzY7HgIQWWY1CW8mM0c+SjlB9Gmh30lnwA/xJ5k7SZtCxx19nSylBLymTCXUhdaRWTuCxUil+7cCQ==" length="2083552" />
+    </item>
+    <item>
       <title>Hidden Bar 1.11.1-fw.2</title>
       <pubDate>Mon, 19 Oct 2026 17:24:05 +0000</pubDate>
       <sparkle:version>16002</sparkle:version>
