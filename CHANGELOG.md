@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.11.1-fw.4 (2026-10-25)
+
+Fork release of floweredao/hidden, based on upstream v1.11.1.
+
+### Fixed
+- macOS 27 (direct build): hiding the separators (right-click, Control-click or Option-click on the arrow) now hides the regular `|` separator together with the always-hidden one, as upstream does on macOS 27. Doing it again shows both.
+- Collapsing no longer moves in two steps (the icons to hide sliding right, then vanishing a moment later). The separators now leave at the moment the icons are hidden.
+
 ## v1.11.1-fw.3 (2026-10-25)
 
 Fork release of floweredao/hidden, based on upstream v1.11.1.
