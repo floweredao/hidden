@@ -1,11 +1,26 @@
 # Changelog
 
-## Unreleased
+## v1.11.1-fw.3 (2026-10-25)
 
-### Added
-- macOS 27 (direct build): Hidden Bar now hides apps by turning off their **Allow in the Menu Bar** switch (System Settings › Menu Bar) instead of holding the assessment-mode restriction, so the **Focus icon, the mic/camera capsule, Now Playing and Live Activities stay visible** while collapsed. Hidden icons disappear completely again (no « overflow). The arrow is the boundary, as with native hiding. The switches are written through cfprefsd, so MenuBarAgent applies them within about half a second without restarting and the rest of the menu bar stays put. The first time, macOS asks you to select Control Center's settings file in an Open panel; Hidden Bar remembers it. The switches are restored on expand, on quit and, after a crash, at the next launch. Turn it off with `defaults write com.dwarvesv.minimalbar hidesWithMenuBarSettings -bool NO`.
-- macOS 27: collapsing keeps the **Focus icon, the mic/camera capsule, Now Playing and Live Activities** visible (on by default, every build). Hidden Bar now hides by making the `|` separator just shorter than the longest item macOS 27 accepts, so the bar runs out of room and macOS moves the icons left of it into its own « menu, one click away. No visibility restriction is held, so macOS keeps its indicators. The technique and its length limits come from Pelmet (MIT). As on macOS 26, the `|` separator is the boundary: ⌘-drag the icons to hide to its left. To go back to hiding icons completely (assessment mode, which takes the indicators with it), run `defaults write com.dwarvesv.minimalbar hidesIntoSystemOverflow -bool NO` and relaunch.
-- macOS 27: **Show Focus and mic/camera indicators when expanded** (Preferences, on by default). While Hidden Bar hides any icon, macOS hides the Focus icon and the mic/camera capsule whatever the allow list says; with this on, expanding hides nothing, so they show again. The always-hidden section then shows while expanded too; turn it off to keep that section hidden at the cost of the indicators.
+Fork release of floweredao/hidden, based on upstream v1.11.1.
+
+### Changed
+- macOS 27 (direct build): the click handling and the hiding engine were rewritten to work like the classic app. A click changes the arrow at once and the icons follow in the background, so collapsing no longer lags (arrow about 0.26 s -> under 0.02 s on the test Mac).
+- Hiding turns off each hidden app's **Allow in the Menu Bar** switch (System Settings > Menu Bar), so the Focus icon, the mic/camera capsule, Now Playing and Live Activities stay visible while collapsed. The switches are restored on expand, on quit and, after a crash, at the next launch. The first time, macOS asks you to select Control Center's settings file in an Open panel.
+- Right-click, Control-click and Option-click on the arrow show or hide the always-hidden section (and expand the bar if it is collapsed). With that section off they do nothing. The menu opens from the `|` separators.
+- Idle cost is close to zero: no more polling or Accessibility scans while nothing is clicked.
+
+### Fixed
+- The arrow points toward the hidden icons again: `<` while collapsed, `>` while expanded (mirrored in right-to-left layouts).
+- Right-clicks that sometimes did nothing, and the always-hidden setting flipping on its own after a collapse.
+- The arrow showing "expanded" while the icons were already hidden.
+
+### Removed
+- The per-app section picker in Preferences, the « overflow hiding mode and the "Show Focus and mic/camera indicators when expanded" option. Arrange icons with Cmd-drag, as in the classic app.
+
+### Known limits
+- Hiding is per app: an app with two menu bar icons hides both.
+- After launch the bar collapses after about 2 s, once the icons a previous session hid are drawn again.
 
 ## v1.11.1-fw.2 (2026-10-20)
 
