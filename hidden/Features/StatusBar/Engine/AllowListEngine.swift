@@ -39,6 +39,11 @@ final class AllowListEngine: MenuBarEngine {
     private var hidden = Set<String>()
     private var collapsed = false
     private var alwaysHiddenShown = true
+    // What our own separators currently show. Revealing follows the state at once, but
+    // hiding waits until macOS has the hide write, so the separators and the icons
+    // leave together instead of the icons first sliding over and then vanishing.
+    private var shownCollapsed = false
+    private var shownAlwaysHidden = true
     private var separatorFrame: CGRect?
     private var alwaysHiddenFrame: CGRect?
     private var arrangementValid = false
@@ -148,6 +153,8 @@ final class AllowListEngine: MenuBarEngine {
             || (!self.alwaysHiddenShown && alwaysHiddenShown)
         self.collapsed = collapsed
         self.alwaysHiddenShown = alwaysHiddenShown
+        if !collapsed { shownCollapsed = false }
+        if alwaysHiddenShown { shownAlwaysHidden = true }
         updateOwnItems()
         if collapsed && !hasSnapshot && snapshotSkipped && !snapshotInFlight {
             snapshotSkipped = false
@@ -163,8 +170,10 @@ final class AllowListEngine: MenuBarEngine {
         // Unknown boundaries must get their first layout before they can disappear.
         // Until the first inventory lands the | also stays, because removing it shifts
         // the icons beside it and the inventory would classify them against a stale boundary.
-        items?.separatorItem.isVisible = !collapsed || separatorFrame == nil || !hasSnapshot
-        items?.alwaysHiddenItem?.isVisible = !alwaysHiddenPlacementKnown || (!collapsed && alwaysHiddenShown)
+        // "Hide separators" takes both separators out, as the original does on macOS 27.
+        let separatorsShown = shownAlwaysHidden || items?.alwaysHiddenItem == nil
+        items?.separatorItem.isVisible = (!shownCollapsed && separatorsShown) || separatorFrame == nil || !hasSnapshot
+        items?.alwaysHiddenItem?.isVisible = !alwaysHiddenPlacementKnown || (!shownCollapsed && shownAlwaysHidden)
         lastOffsets = relativeOffsets()
     }
 
@@ -257,6 +266,8 @@ final class AllowListEngine: MenuBarEngine {
         }
         guard !needsFileAccess else {
             NSLog("AllowListEngine: Menu Bar settings file access needed")
+            // No write will come to wait for, so the separators follow the state now.
+            presentState()
             return
         }
         let wanted: Set<MenuBarSection> = collapsed ? [.hidden, .alwaysHidden]
@@ -310,12 +321,20 @@ final class AllowListEngine: MenuBarEngine {
         deliver { [weak self] in
             guard let self = self, write.revision == self.revision else { return }
             if succeeded { self.hidden = write.hidden }
+            self.presentState()
             if succeeded && write.hidden.isEmpty && !self.collapsed && self.settledSnapshotNeeded {
                 self.settledSnapshotNeeded = false
                 self.requestSnapshot(after: 1.5)
             }
         }
         drain()
+    }
+
+    private func presentState() {
+        guard shownCollapsed != collapsed || shownAlwaysHidden != alwaysHiddenShown else { return }
+        shownCollapsed = collapsed
+        shownAlwaysHidden = alwaysHiddenShown
+        updateOwnItems()
     }
 
     @discardableResult func restoreAll() -> Bool {

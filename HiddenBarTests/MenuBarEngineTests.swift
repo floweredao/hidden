@@ -318,24 +318,27 @@ final class AllowListEngineTests: XCTestCase {
         writer.run()
     }
 
-    func testDesiredHiddenSetsAndSynchronousOwnItems() {
+    func testDesiredHiddenSetsAndOwnItemsLeaveWithTheIcons() {
         let engine = makeEngine()
         snapshot(engine)
         engine.apply(collapsed: true, alwaysHiddenShown: false)
-        XCTAssertFalse(items.separatorItem.isVisible)
-        XCTAssertFalse(items.alwaysHiddenItem!.isVisible)
+        XCTAssertTrue(items.separatorItem.isVisible, "separators stay until the icons are hidden with them")
+        XCTAssertTrue(items.alwaysHiddenItem!.isVisible)
         XCTAssertEqual(items.separatorItem.length, 20)
         XCTAssertTrue(bridge.requests.isEmpty, "writes never run in apply")
         writer.run()
         XCTAssertEqual(bridge.requests.first?.hidden, ["com.always", "com.hidden"])
         XCTAssertEqual(Set(bridge.requests.first?.bundles ?? []), ["com.visible", "own", "com.apple.MenuBarAgent", "com.apple.controlcenter"])
         complete(0)
+        XCTAssertFalse(items.separatorItem.isVisible)
+        XCTAssertFalse(items.alwaysHiddenItem!.isVisible)
         engine.apply(collapsed: false, alwaysHiddenShown: false)
-        XCTAssertTrue(items.separatorItem.isVisible)
+        XCTAssertFalse(items.separatorItem.isVisible, "hiding separators hides both of them")
         XCTAssertFalse(items.alwaysHiddenItem!.isVisible)
         writer.run()
         XCTAssertEqual(bridge.requests.dropFirst().first?.hidden, ["com.always"])
         complete(1)
+        XCTAssertFalse(items.separatorItem.isVisible)
         let restores = bridge.restores
         engine.apply(collapsed: false, alwaysHiddenShown: true)
         writer.run()
@@ -399,9 +402,9 @@ final class AllowListEngineTests: XCTestCase {
         XCTAssertTrue(items.separatorItem.isVisible)
         snapshot(engine)
         XCTAssertEqual(inventory.snapshots, 1)
-        XCTAssertFalse(items.separatorItem.isVisible)
         XCTAssertEqual(bridge.requests.first?.hidden, ["com.always", "com.hidden"])
         complete(0)
+        XCTAssertFalse(items.separatorItem.isVisible)
     }
 
     func testCollapseDoesNotCancelPendingLaunchSnapshot() {
@@ -409,9 +412,9 @@ final class AllowListEngineTests: XCTestCase {
         engine.apply(collapsed: true, alwaysHiddenShown: false)
         XCTAssertTrue(items.separatorItem.isVisible, "the boundary stays until the first inventory is read against it")
         snapshot(engine)
-        XCTAssertFalse(items.separatorItem.isVisible)
         XCTAssertEqual(bridge.requests.count, 1)
         complete(0)
+        XCTAssertFalse(items.separatorItem.isVisible)
     }
 
     func testHiddenBundlesKeepTheirCachedSectionAcrossStaleFrames() {
@@ -536,9 +539,9 @@ final class AllowListEngineTests: XCTestCase {
         missingAlwaysFrame = false
         snapshot(engine)
         XCTAssertTrue(engine.isAlwaysHiddenSeparatorPlaced)
-        XCTAssertFalse(items.alwaysHiddenItem!.isVisible)
         XCTAssertEqual(bridge.requests.first?.hidden, ["com.always"])
         complete(0)
+        XCTAssertFalse(items.alwaysHiddenItem!.isVisible)
     }
 
     func testPermissionGrantedAfterSkippedLaunchSnapshotRetriesOnCollapse() {
