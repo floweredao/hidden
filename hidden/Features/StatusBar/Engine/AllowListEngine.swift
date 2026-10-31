@@ -190,7 +190,7 @@ final class AllowListEngine: MenuBarEngine {
     func refreshArrangement() { requestSnapshot(after: 0.1) }
 
     func applicationsChanged() {
-        guard !collapsed && hidden.isEmpty else { return }
+        guard !collapsed else { return }
         requestSnapshot(after: 0.1)
     }
 
@@ -220,7 +220,11 @@ final class AllowListEngine: MenuBarEngine {
                 return
             }
             self.captureArrangement()
-            guard let boundary = self.separatorFrame,
+            // While the always-hidden section stays hidden, both separators are out and
+            // the icons beside them have shifted, so the arrow is the boundary then.
+            // Icons left of it are not visible-section ones; hidden bundles keep their section.
+            let separatorShown = self.items?.separatorItem.isVisible ?? false
+            guard let boundary = separatorShown ? self.separatorFrame : self.items.flatMap({ self.frame($0.toggleItem) }),
                   self.items?.alwaysHiddenItem == nil || self.alwaysHiddenPlacementKnown else {
                 self.snapshotSkipped = true
                 return
@@ -232,7 +236,7 @@ final class AllowListEngine: MenuBarEngine {
             }
             self.snapshotSkipped = false
             self.updateOwnItems()
-            let always = self.items?.alwaysHiddenItem == nil ? nil : self.alwaysHiddenFrame
+            let always = self.items?.alwaysHiddenItem == nil || !separatorShown ? nil : self.alwaysHiddenFrame
             self.snapshotInFlight = true
             self.inventory.snapshot { [weak self] snapshot in
                 guard let self = self else { return }
@@ -322,7 +326,7 @@ final class AllowListEngine: MenuBarEngine {
             guard let self = self, write.revision == self.revision else { return }
             if succeeded { self.hidden = write.hidden }
             self.presentState()
-            if succeeded && write.hidden.isEmpty && !self.collapsed && self.settledSnapshotNeeded {
+            if succeeded && !self.collapsed && self.settledSnapshotNeeded {
                 self.settledSnapshotNeeded = false
                 self.requestSnapshot(after: 1.5)
             }
