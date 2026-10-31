@@ -445,7 +445,7 @@ final class AllowListEngineTests: XCTestCase {
         XCTAssertTrue(scheduler.pending.allSatisfy { $0.isCancelled })
     }
 
-    func testSnapshotTriggersDebounceAndWorkspaceOnlyWhenFullyShown() {
+    func testSnapshotTriggersDebounceAndWorkspaceOnlyWhenExpanded() {
         let engine = makeEngine()
         engine.refreshArrangement()
         engine.invalidateLayout()
@@ -461,7 +461,32 @@ final class AllowListEngineTests: XCTestCase {
         writer.run()
         complete(1)
         workspace.post(name: NSWorkspace.didLaunchApplicationNotification, object: nil)
-        XCTAssertTrue(scheduler.pending.allSatisfy { $0.isCancelled })
+        XCTAssertEqual(scheduler.pending.filter { !$0.isCancelled }.count, 1,
+                       "a launch while the always-hidden section stays hidden is read once")
+    }
+
+    // Keeping the always-hidden section hidden while expanded keeps both separators
+    // out, so an app launched then must still be read, against the arrow.
+    func testAppLaunchedWhileAlwaysHiddenStaysHiddenIsHiddenOnNextCollapse() {
+        let engine = makeEngine()
+        snapshot(engine)
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        writer.run()
+        complete(0)
+        engine.apply(collapsed: false, alwaysHiddenShown: false)
+        writer.run()
+        complete(1)
+        XCTAssertFalse(items.separatorItem.isVisible)
+        // Without the separator the new icon sits where it was, right of its old midpoint.
+        inventory.items = [item("com.always", x: 900), item("com.hidden", x: 1120),
+                           item("com.new", x: 1300), item("com.visible", x: 1400)]
+        workspace.post(name: NSWorkspace.didLaunchApplicationNotification, object: nil)
+        snapshot(engine)
+        complete(bridge.requests.count - 1)
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        writer.run()
+        XCTAssertEqual(bridge.requests.last?.hidden, ["com.always", "com.hidden", "com.new"])
+        complete(bridge.requests.count - 1)
     }
 
     func testRefreshedShownBundlesFollowSeparatorRatherThanArrow() {
