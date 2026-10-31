@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.11.1-fw.5 (2026-11-01)
+
+Fork release of floweredao/hidden, based on upstream v1.11.1.
+
+### Fixed
+- macOS 27 (direct build): an app launched while the bar is collapsed and the always-hidden section stays hidden is now hidden too, instead of showing up in the visible part of the bar.
+- `scripts/install-local.sh` builds and installs on a Mac where Xcode has no Apple account: without an Apple Development identity it signs the app ad hoc.
+
 ## v1.11.1-fw.4 (2026-10-25)
 
 Fork release of floweredao/hidden, based on upstream v1.11.1.
