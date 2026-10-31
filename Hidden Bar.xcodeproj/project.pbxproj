@@ -843,7 +843,7 @@
 				CODE_SIGN_IDENTITY = "Mac Developer";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 16004;
+				CURRENT_PROJECT_VERSION = 16005;
 				DEVELOPMENT_TEAM = W777S7V8TN;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = hidden/Info.plist;
@@ -852,7 +852,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				HIDDEN_FORK_VERSION = "$(MARKETING_VERSION)-fw.4";
+				HIDDEN_FORK_VERSION = "$(MARKETING_VERSION)-fw.5";
 				MARKETING_VERSION = 1.11.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dwarvesv.minimalbar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -869,7 +869,7 @@
 				CODE_SIGN_IDENTITY = "Mac Developer";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 16004;
+				CURRENT_PROJECT_VERSION = 16005;
 				DEVELOPMENT_TEAM = W777S7V8TN;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = hidden/Info.plist;
@@ -878,7 +878,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				HIDDEN_FORK_VERSION = "$(MARKETING_VERSION)-fw.4";
+				HIDDEN_FORK_VERSION = "$(MARKETING_VERSION)-fw.5";
 				MARKETING_VERSION = 1.11.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dwarvesv.minimalbar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -946,7 +946,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
 				HIDDEN_SU_FEED_URL = "https://raw.githubusercontent.com/floweredao/hidden/develop/appcast.xml";
-				HIDDEN_SU_PUBLIC_ED_KEY = "VbngBA5Qlbrd7YDbcZ8pYs6Va8snfBwYnaySpf5yR2c=";
+				HIDDEN_SU_PUBLIC_ED_KEY = "f0pgGvrR+lMcPwcozv8xwfaVvAf6stWuLejn+fmqwXE="; /* public Sparkle key, gitleaks:allow */
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG HIDDENBAR_NATIVE_VISIBILITY HIDDENBAR_UPDATER";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -960,7 +960,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 16004;
+				CURRENT_PROJECT_VERSION = 16005;
 				DEVELOPMENT_TEAM = W777S7V8TN;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = hidden/Info.plist;
@@ -969,7 +969,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				HIDDEN_FORK_VERSION = "$(MARKETING_VERSION)-fw.4";
+				HIDDEN_FORK_VERSION = "$(MARKETING_VERSION)-fw.5";
 				MARKETING_VERSION = 1.11.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dwarvesv.minimalbar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -986,7 +986,7 @@
 					"HIDDENBAR_NATIVE_VISIBILITY=1",
 				);
 				HIDDEN_SU_FEED_URL = "https://raw.githubusercontent.com/floweredao/hidden/develop/appcast.xml";
-				HIDDEN_SU_PUBLIC_ED_KEY = "VbngBA5Qlbrd7YDbcZ8pYs6Va8snfBwYnaySpf5yR2c=";
+				HIDDEN_SU_PUBLIC_ED_KEY = "f0pgGvrR+lMcPwcozv8xwfaVvAf6stWuLejn+fmqwXE="; /* public Sparkle key, gitleaks:allow */
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) HIDDENBAR_NATIVE_VISIBILITY HIDDENBAR_UPDATER";
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
@@ -1048,7 +1048,7 @@
 				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 16004;
+				CURRENT_PROJECT_VERSION = 16005;
 				DEVELOPMENT_TEAM = W777S7V8TN;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = hidden/Info.plist;
@@ -1057,7 +1057,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				HIDDEN_FORK_VERSION = "$(MARKETING_VERSION)-fw.4";
+				HIDDEN_FORK_VERSION = "$(MARKETING_VERSION)-fw.5";
 				MARKETING_VERSION = 1.11.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dwarvesv.minimalbar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
