@@ -30,8 +30,9 @@ App Sandbox entitlement, exports the prefs domain to
 `~/Library/Application Support/Hidden Bar Backups`, quits the running app,
 moves `/Applications/Hidden Bar.app` to the Trash, installs and launches the
 new build, and prints version, commit, signer, sandbox state and pid. It signs
-with your first Apple Development identity; set `HIDDEN_TEAM` to pick another
-team, `HIDDEN_INSTALL_DIR` or `HIDDEN_BACKUP_DIR` to change the folders.
+with your first Apple Development identity, or ad hoc when there is none (no
+Apple account needed; macOS then asks for Accessibility again after each
+reinstall); set `HIDDEN_TEAM` to pick another team, `HIDDEN_INSTALL_DIR` or `HIDDEN_BACKUP_DIR` to change the folders.
 
 A sandboxed build keeps its settings in
 `~/Library/Containers/com.dwarvesv.minimalbar`, the direct build in
@@ -100,8 +101,8 @@ installed app, test the dev build, then re-import and relaunch.
    no in-app updater and its releases are not in this feed, so nothing
    replaces a fork build with an upstream release. The App Store `Release`
    build never starts the updater (SPM still embeds Sparkle.framework there).
-   Fork releases are signed with an Apple Development certificate (team
-   2C86A9X4CG) and are not notarized: notarization needs a Developer ID
+   Fork releases are signed with the maintainer's Apple Development
+   certificate and are not notarized: notarization needs a Developer ID
    Application certificate and notary credentials, which this fork does not
    have.
 3. Fork release (floweredao/hidden): write the notes as an HTML fragment,

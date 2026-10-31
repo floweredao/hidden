@@ -52,7 +52,7 @@ This fork publishes its own builds on [floweredao/hidden releases](https://githu
 
 #### Build and install from source
 
-`scripts/install-local.sh` builds the unsandboxed `Release-Direct` app, refuses to install it if it carries the App Sandbox entitlement, backs up your settings, quits the running Hidden Bar, moves the old app to the Trash, installs and launches the new one, then prints its version, commit and signature. It signs with your Apple Development identity.
+`scripts/install-local.sh` builds the unsandboxed `Release-Direct` app, refuses to install it if it carries the App Sandbox entitlement, backs up your settings, quits the running Hidden Bar, moves the old app to the Trash, installs and launches the new one, then prints its version, commit and signature. It signs with your Apple Development identity, or ad hoc if Xcode has no Apple account (macOS then asks for the Accessibility permission again after each reinstall). Set `HIDDEN_TEAM` to choose a team.
 
 ```sh
 scripts/install-local.sh

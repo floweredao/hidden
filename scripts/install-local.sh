@@ -4,7 +4,8 @@
 #   scripts/install-local.sh
 #
 # Environment overrides:
-#   HIDDEN_TEAM         signing team ID (default: team of your first "Apple Development" identity)
+#   HIDDEN_TEAM         signing team ID (default: team of your first "Apple Development" identity;
+#                       with none, the app is signed ad hoc)
 #   HIDDEN_INSTALL_DIR  install folder (default: /Applications)
 #   HIDDEN_BACKUP_DIR   preference backups (default: ~/Library/Application Support/Hidden Bar Backups)
 set -euo pipefail
@@ -23,17 +24,29 @@ fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 TEAM=${HIDDEN_TEAM:-}
 if [ -z "$TEAM" ]; then
   identity=$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development: [^"]*\)".*/\1/p' | head -n 1)
-  [ -n "$identity" ] || fail "no Apple Development signing identity found; set HIDDEN_TEAM"
-  TEAM=$(security find-certificate -c "$identity" -p | openssl x509 -noout -subject -nameopt multiline \
-    | sed -n 's/^ *organizationalUnitName *= *//p' | head -n 1)
-  [ -n "$TEAM" ] || fail "could not read the team ID of \"$identity\"; set HIDDEN_TEAM"
+  if [ -n "$identity" ]; then
+    TEAM=$(security find-certificate -c "$identity" -p | openssl x509 -noout -subject -nameopt multiline \
+      | sed -n 's/^ *organizationalUnitName *= *//p' | head -n 1)
+    [ -n "$TEAM" ] || fail "could not read the team ID of \"$identity\"; set HIDDEN_TEAM"
+  fi
 fi
 
-step "Building Release-Direct (team $TEAM)"
+if [ -n "$TEAM" ]; then
+  SIGNING=(CODE_SIGN_IDENTITY="Apple Development" DEVELOPMENT_TEAM="$TEAM")
+  SIGNED_BY="team $TEAM"
+else
+  # Ad hoc: no Apple account needed. Hardened runtime is off because its library validation
+  # needs a team ID to load the embedded Sparkle framework.
+  SIGNING=(CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= ENABLE_HARDENED_RUNTIME=NO)
+  SIGNED_BY="signed ad hoc"
+  printf 'note: no Apple Development identity found, so the app is signed ad hoc. macOS asks for the\n      Accessibility permission again after each reinstall. Set HIDDEN_TEAM to sign with a team.\n'
+fi
+
+step "Building Release-Direct ($SIGNED_BY)"
 mkdir -p "$WORK"
 if ! xcodebuild -project "$ROOT/Hidden Bar.xcodeproj" -scheme 'Hidden Bar' \
     -configuration Release-Direct -derivedDataPath "$WORK/DerivedData" \
-    CODE_SIGN_IDENTITY="Apple Development" DEVELOPMENT_TEAM="$TEAM" \
+    "${SIGNING[@]}" \
     build >"$WORK/build.log" 2>&1; then
   tail -n 30 "$WORK/build.log" >&2
   fail "build failed; full log: $WORK/build.log"
