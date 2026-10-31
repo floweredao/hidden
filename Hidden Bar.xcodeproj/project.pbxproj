@@ -946,7 +946,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
 				HIDDEN_SU_FEED_URL = "https://raw.githubusercontent.com/floweredao/hidden/develop/appcast.xml";
-				HIDDEN_SU_PUBLIC_ED_KEY = "VbngBA5Qlbrd7YDbcZ8pYs6Va8snfBwYnaySpf5yR2c=";
+				HIDDEN_SU_PUBLIC_ED_KEY = "f0pgGvrR+lMcPwcozv8xwfaVvAf6stWuLejn+fmqwXE="; /* public Sparkle key, gitleaks:allow */
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG HIDDENBAR_NATIVE_VISIBILITY HIDDENBAR_UPDATER";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -986,7 +986,7 @@
 					"HIDDENBAR_NATIVE_VISIBILITY=1",
 				);
 				HIDDEN_SU_FEED_URL = "https://raw.githubusercontent.com/floweredao/hidden/develop/appcast.xml";
-				HIDDEN_SU_PUBLIC_ED_KEY = "VbngBA5Qlbrd7YDbcZ8pYs6Va8snfBwYnaySpf5yR2c=";
+				HIDDEN_SU_PUBLIC_ED_KEY = "f0pgGvrR+lMcPwcozv8xwfaVvAf6stWuLejn+fmqwXE="; /* public Sparkle key, gitleaks:allow */
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) HIDDENBAR_NATIVE_VISIBILITY HIDDENBAR_UPDATER";
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
