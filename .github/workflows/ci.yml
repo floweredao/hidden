@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain version
+        run: xcodebuild -version
+      - name: Build for testing
+        timeout-minutes: 20
+        run: |
+          xcodebuild build-for-testing \
+            -project 'Hidden Bar.xcodeproj' \
+            -scheme 'Hidden Bar' \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Run tests
+        timeout-minutes: 10
+        env:
+          # Make a crashing test fail fast instead of waiting at the interactive backtrace prompt.
+          SWIFT_BACKTRACE: interactive=no
+        run: |
+          xcodebuild test-without-building \
+            -project 'Hidden Bar.xcodeproj' \
+            -scheme 'Hidden Bar' \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 60 \
+            CODE_SIGNING_ALLOWED=NO

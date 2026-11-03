@@ -8,6 +8,8 @@ private final class FakeItems: MenuBarItemProvider {
     var alwaysHiddenItem: NSStatusItem?
 
     init() {
+        // The test bundle has no host app; AppKit needs its window-server connection before NSStatusBar is used.
+        _ = NSApplication.shared
         toggleItem = bar.statusItem(withLength: NSStatusItem.variableLength)
         separatorItem = bar.statusItem(withLength: 1)
         alwaysHiddenItem = bar.statusItem(withLength: 20)
