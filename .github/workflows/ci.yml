@@ -29,6 +29,9 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
       - name: Run tests
         timeout-minutes: 10
+        env:
+          # Make a crashing test fail fast instead of waiting at the interactive backtrace prompt.
+          SWIFT_BACKTRACE: interactive=no
         run: |
           xcodebuild test-without-building \
             -project 'Hidden Bar.xcodeproj' \
