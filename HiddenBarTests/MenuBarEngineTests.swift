@@ -328,7 +328,7 @@ final class AllowListEngineTests: XCTestCase {
         XCTAssertTrue(items.alwaysHiddenItem!.isVisible)
         XCTAssertEqual(items.separatorItem.length, 20)
         XCTAssertTrue(bridge.requests.isEmpty, "writes never run in apply")
-        writer.run()
+        snapshot(engine)
         XCTAssertEqual(bridge.requests.first?.hidden, ["com.always", "com.hidden"])
         XCTAssertEqual(Set(bridge.requests.first?.bundles ?? []), ["com.visible", "own", "com.apple.MenuBarAgent", "com.apple.controlcenter"])
         complete(0)
@@ -353,7 +353,7 @@ final class AllowListEngineTests: XCTestCase {
         let engine = makeEngine()
         snapshot(engine)
         engine.apply(collapsed: true, alwaysHiddenShown: false)
-        writer.run()
+        snapshot(engine)
         XCTAssertEqual(bridge.requests.count, 1)
         engine.apply(collapsed: false, alwaysHiddenShown: true)
         engine.apply(collapsed: true, alwaysHiddenShown: false)
@@ -423,7 +423,7 @@ final class AllowListEngineTests: XCTestCase {
         let engine = makeEngine()
         snapshot(engine)
         engine.apply(collapsed: true, alwaysHiddenShown: false)
-        writer.run()
+        snapshot(engine)
         complete(0)
         inventory.items = [item("com.always", x: 1800), item("com.hidden", x: 1800), item("com.visible", x: 1450)]
         engine.refreshArrangement()
@@ -432,18 +432,19 @@ final class AllowListEngineTests: XCTestCase {
         complete(1)
     }
 
-    func testNoSnapshotsOnClicksOrIdleAndOneShotDoesNotRepeat() {
+    func testOnlyCollapseReadsAndOneShotDoesNotRepeat() {
         let engine = makeEngine()
         snapshot(engine)
         engine.apply(collapsed: true, alwaysHiddenShown: true)
-        writer.run()
+        XCTAssertTrue(bridge.requests.isEmpty, "a collapse hides what the read finds")
+        snapshot(engine)
         complete(0)
-        XCTAssertEqual(inventory.snapshots, 1)
+        XCTAssertEqual(inventory.snapshots, 2)
         engine.apply(collapsed: false, alwaysHiddenShown: true)
         writer.run()
-        XCTAssertEqual(inventory.snapshots, 1)
+        XCTAssertEqual(inventory.snapshots, 2, "expanding reads nothing until it settles")
         snapshot(engine)
-        XCTAssertEqual(inventory.snapshots, 2)
+        XCTAssertEqual(inventory.snapshots, 3)
         XCTAssertTrue(scheduler.pending.allSatisfy { $0.isCancelled })
     }
 
@@ -455,7 +456,7 @@ final class AllowListEngineTests: XCTestCase {
         snapshot(engine)
         XCTAssertEqual(inventory.snapshots, 1)
         engine.apply(collapsed: true, alwaysHiddenShown: true)
-        writer.run()
+        snapshot(engine)
         complete(0)
         workspace.post(name: NSWorkspace.didTerminateApplicationNotification, object: nil)
         XCTAssertTrue(scheduler.pending.allSatisfy { $0.isCancelled })
@@ -473,7 +474,7 @@ final class AllowListEngineTests: XCTestCase {
         let engine = makeEngine()
         snapshot(engine)
         engine.apply(collapsed: true, alwaysHiddenShown: false)
-        writer.run()
+        snapshot(engine)
         complete(0)
         engine.apply(collapsed: false, alwaysHiddenShown: false)
         writer.run()
@@ -486,9 +487,61 @@ final class AllowListEngineTests: XCTestCase {
         snapshot(engine)
         complete(bridge.requests.count - 1)
         engine.apply(collapsed: true, alwaysHiddenShown: false)
-        writer.run()
+        snapshot(engine)
         XCTAssertEqual(bridge.requests.last?.hidden, ["com.always", "com.hidden", "com.new"])
         complete(bridge.requests.count - 1)
+    }
+
+    // ⌘-dragging an icon from the visible side to the far left moves the arrow and
+    // the separator together, which the move observer ignores, so the collapse
+    // itself must read where the icon now sits.
+    func testIconDraggedIntoHiddenSectionWhileExpandedHidesOnNextCollapse() {
+        let engine = makeEngine()
+        snapshot(engine)
+        engine.apply(collapsed: true, alwaysHiddenShown: true)
+        snapshot(engine)
+        XCTAssertEqual(bridge.requests.last?.hidden, ["com.always", "com.hidden"])
+        complete(0)
+        engine.apply(collapsed: false, alwaysHiddenShown: true)
+        writer.run()
+        snapshot(engine)
+        shift = 24
+        inventory.items = [item("com.visible", x: 1050), item("com.always", x: 924), item("com.hidden", x: 1124)]
+        moves.post(name: NSWindow.didMoveNotification, object: arrowWindow)
+        moves.post(name: NSWindow.didMoveNotification, object: separatorWindow)
+        snapshot(engine)
+        engine.apply(collapsed: true, alwaysHiddenShown: true)
+        snapshot(engine)
+        XCTAssertEqual(bridge.requests.last?.hidden, ["com.always", "com.hidden", "com.visible"])
+        complete(bridge.requests.count - 1)
+    }
+
+    func testIconDraggedOutOfHiddenSectionStaysVisibleOnNextCollapse() {
+        let engine = makeEngine()
+        snapshot(engine)
+        engine.apply(collapsed: true, alwaysHiddenShown: true)
+        snapshot(engine)
+        complete(0)
+        engine.apply(collapsed: false, alwaysHiddenShown: true)
+        writer.run()
+        snapshot(engine)
+        shift = -24
+        inventory.items = [item("com.always", x: 876), item("com.visible", x: 1376), item("com.hidden", x: 1420)]
+        engine.apply(collapsed: true, alwaysHiddenShown: true)
+        snapshot(engine)
+        XCTAssertEqual(bridge.requests.last?.hidden, ["com.always"])
+        complete(bridge.requests.count - 1)
+    }
+
+    func testCollapseWithoutAccessibilityStillHidesCachedSections() {
+        let engine = makeEngine()
+        snapshot(engine)
+        inventory.isAuthorized = false
+        engine.apply(collapsed: true, alwaysHiddenShown: false)
+        snapshot(engine)
+        XCTAssertEqual(inventory.snapshots, 1)
+        XCTAssertEqual(bridge.requests.last?.hidden, ["com.always", "com.hidden"])
+        complete(0)
     }
 
     func testRefreshedShownBundlesFollowSeparatorRatherThanArrow() {
@@ -496,7 +549,7 @@ final class AllowListEngineTests: XCTestCase {
         let engine = makeEngine()
         snapshot(engine)
         engine.apply(collapsed: true, alwaysHiddenShown: true)
-        writer.run()
+        snapshot(engine)
         XCTAssertEqual(bridge.requests.first?.hidden, ["com.hidden"])
         complete(0)
     }
@@ -545,7 +598,7 @@ final class AllowListEngineTests: XCTestCase {
         let engine = makeEngine()
         snapshot(engine)
         engine.apply(collapsed: true, alwaysHiddenShown: false)
-        writer.run()
+        snapshot(engine)
         XCTAssertFalse(items.separatorItem.isVisible)
         XCTAssertTrue(engine.needsFileAccess)
         XCTAssertTrue(bridge.requests.isEmpty)
@@ -624,7 +677,7 @@ final class AllowListEngineTests: XCTestCase {
         let engine = makeEngine()
         snapshot(engine)
         engine.apply(collapsed: true, alwaysHiddenShown: false)
-        writer.run()
+        snapshot(engine)
         XCTAssertEqual(bridge.requests.count, 1)
         let restores = bridge.restores
         XCTAssertTrue(engine.restoreAll())

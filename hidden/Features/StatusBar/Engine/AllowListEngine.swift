@@ -148,6 +148,11 @@ final class AllowListEngine: MenuBarEngine {
 
     func apply(collapsed: Bool, alwaysHiddenShown: Bool) {
         captureArrangement()
+        // An icon ⌘-dragged across the arrow while expanded shifts our items together
+        // (or not at all while the separators are out), which the move observer
+        // ignores, and an icon can appear after the last read. Every icon is still
+        // drawn at this point, so read where they sit before hiding them.
+        let readsBeforeHiding = collapsed && !self.collapsed && hasSnapshot
         if collapsed { inventoryAllowed = true }
         settledSnapshotNeeded = settledSnapshotNeeded || (self.collapsed && !collapsed)
             || (!self.alwaysHiddenShown && alwaysHiddenShown)
@@ -159,6 +164,11 @@ final class AllowListEngine: MenuBarEngine {
         if collapsed && !hasSnapshot && snapshotSkipped && !snapshotInFlight {
             snapshotSkipped = false
             requestSnapshot(after: 0)
+        }
+        if readsBeforeHiding {
+            // The read writes when it lands, or falls back to the cached sections.
+            requestSnapshot(after: 0)
+            return
         }
         // Availability may open a modal file picker, so it must not run in the click handler.
         deliver { [weak self] in self?.writeDesiredState() }
@@ -227,11 +237,13 @@ final class AllowListEngine: MenuBarEngine {
             guard let boundary = separatorShown ? self.separatorFrame : self.items.flatMap({ self.frame($0.toggleItem) }),
                   self.items?.alwaysHiddenItem == nil || self.alwaysHiddenPlacementKnown else {
                 self.snapshotSkipped = true
+                if self.collapsed { self.writeDesiredState() }
                 return
             }
             guard self.inventory.isAuthorized else {
                 self.snapshotSkipped = true
                 self.inventory.requestAuthorization()
+                if self.collapsed { self.writeDesiredState() }
                 return
             }
             self.snapshotSkipped = false
