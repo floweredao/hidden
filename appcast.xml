@@ -6,6 +6,26 @@
     <description>Updates for the floweredao fork of Hidden Bar.</description>
     <language>en</language>
     <item>
+      <title>Hidden Bar 1.11.1-fw.6</title>
+      <pubDate>Thu, 12 Nov 2026 21:37:58 +0000</pubDate>
+      <sparkle:version>16006</sparkle:version>
+      <sparkle:shortVersionString>1.11.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/floweredao/hidden/releases/tag/v1.11.1-fw.6</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[
+<h2>Hidden Bar 1.11.1-fw.6</h2>
+<ul>
+<li>macOS 27: icons macOS kept hidden after Hidden Bar turned them back on now come back by themselves when you quit or start Hidden Bar. The menu bar blinks once, and only when something was stuck.</li>
+<li>New <strong>Restore All Icons</strong> menu item: brings back every icon Hidden Bar hid, including ones macOS kept hidden.</li>
+<li>New <strong>Refresh Menu Bar</strong> menu item, which also runs by itself after a display change: redraws the arrow and icons without quitting.</li>
+<li>An icon Cmd-dragged across the arrow, or one that appeared since the last read, is hidden on the next collapse.</li>
+<li>Collapsing on a fullscreen space no longer leaves the bar unhidden afterwards.</li>
+</ul>
+<p>macOS 27: Hidden Bar를 끄거나 켤 때, macOS가 숨긴 채로 둔 아이콘이 저절로 다시 나타납니다. 새 메뉴 <strong>모든 아이콘 복원</strong>과 <strong>메뉴 막대 새로 고침</strong>을 추가했고, 드래그로 옮긴 아이콘과 전체 화면 공간에서의 숨김 문제를 고쳤습니다.</p>
+      ]]></description>
+      <enclosure url="https://github.com/floweredao/hidden/releases/download/v1.11.1-fw.6/Hidden-Bar-1.11.1-fw.6.zip" type="application/octet-stream" sparkle:edSignature="XLn6EuTlGIBDmuNP3lwxztX1BhaunOH4LA9ZQfokx1g5O5JDaX7qrhqiBRcXjM5wOiN3J7pKWgVMSnasEVCTAQ==" length="2033752" />
+    </item>
+    <item>
       <title>Hidden Bar 1.11.1-fw.5</title>
       <pubDate>Sat, 31 Oct 2026 16:06:55 +0000</pubDate>
       <sparkle:version>16005</sparkle:version>
