@@ -26,6 +26,8 @@ class AppDelegate: NSObject, NSApplicationDelegate{
     // journal; a duplicate quitting must leave it alone.
     private var ownsRecoveryJournal = false
     private var signalSources: [DispatchSourceSignal] = []
+    private var displayConfiguration = DisplayConfiguration(screens: [])
+    private var displayRefresh: DispatchWorkItem?
     private lazy var lifecycle = AppLifecycle(
         isOwner: { [weak self] in self?.ownsRecoveryJournal ?? false },
         recover: AppDelegate.recoverMenuBarSettings,
@@ -66,6 +68,9 @@ class AppDelegate: NSObject, NSApplicationDelegate{
         lifecycle.launch { _ in
             statusBarController = StatusBarController()
         }
+        displayConfiguration = .current
+        NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil)
         setupAutoStartApp()
         setupHotKey()
         #if HIDDENBAR_UPDATER
@@ -78,6 +83,27 @@ class AppDelegate: NSObject, NSApplicationDelegate{
     // so termination waits for the restore.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         return lifecycle.shouldTerminate()
+    }
+
+    // A display hot-plug or lid change is when the bar has been seen to stop
+    // drawing until a relaunch (#30, upstream #390), so the bar is refreshed once
+    // the new layout has settled.
+    @objc private func screensChanged() {
+        let now = DisplayConfiguration.current
+        guard now != displayConfiguration else { return }
+        displayConfiguration = now
+        AppLifecycle.logDisplayChange(now)
+        displayRefresh?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.refreshMenuBar(reason: "display change") }
+        displayRefresh = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+    }
+
+    func refreshMenuBar(reason: String) {
+        guard let old = statusBarController else { return }
+        lifecycle.refresh(reason: reason, removeItems: { old.removeItems() }) { _ in
+            statusBarController = StatusBarController()
+        }
     }
 
     // Recovery runs before the controller regardless of which engine this launch picks.

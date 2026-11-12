@@ -1,6 +1,10 @@
 import AppKit
+import os
 
 final class AllowListEngine: MenuBarEngine {
+    // What was asked of the menu bar and when, so a bar that stops drawing (#30)
+    // can be lined up with MenuBarAgent's own log.
+    private static let log = Logger(subsystem: "com.dwarvesv.minimalbar", category: "AllowListEngine")
     typealias Scheduler = (TimeInterval, @escaping () -> Void) -> DispatchWorkItem
     private struct Offsets: Equatable {
         let separatorToArrow: CGFloat
@@ -148,6 +152,7 @@ final class AllowListEngine: MenuBarEngine {
 
     func apply(collapsed: Bool, alwaysHiddenShown: Bool) {
         captureArrangement()
+        Self.log.notice("Apply collapsed=\(collapsed, privacy: .public) alwaysHiddenShown=\(alwaysHiddenShown, privacy: .public)")
         // An icon ⌘-dragged across the arrow while expanded shifts our items together
         // (or not at all while the separators are out), which the move observer
         // ignores, and an icon can appear after the last read. Every icon is still
@@ -296,6 +301,7 @@ final class AllowListEngine: MenuBarEngine {
             .union([ownBundle]).union(MenuBarLayoutResolver.systemItemOwners).sorted()
         revision += 1
         let write = Write(revision: revision, hidden: desired, allowed: allowed)
+        Self.log.notice("Write \(write.revision, privacy: .public): hide \(desired.sorted().joined(separator: ","), privacy: .public)")
         // Protect frames for both committed and queued hides until restoration finishes.
         hidden.formUnion(desired)
         lock.lock()
@@ -338,7 +344,9 @@ final class AllowListEngine: MenuBarEngine {
 
     private func finished(_ write: Write, succeeded: Bool) {
         deliver { [weak self] in
-            guard let self = self, write.revision == self.revision else { return }
+            guard let self = self else { return }
+            Self.log.notice("Write \(write.revision, privacy: .public) \(succeeded ? "done" : "failed", privacy: .public)")
+            guard write.revision == self.revision else { return }
             if succeeded { self.hidden = write.hidden }
             self.presentState()
             if succeeded && !self.collapsed && self.settledSnapshotNeeded {

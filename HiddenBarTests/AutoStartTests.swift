@@ -189,6 +189,27 @@ final class AppLifecycleTests: XCTestCase {
         XCTAssertEqual(recovered, false)
     }
 
+    // #30: a refresh is a quit and a launch without ending the process: the
+    // switches come back before the old items go, and the new controller starts
+    // only after launch recovery.
+    func testRefreshRestoresRemovesItemsThenRelaunchesController() {
+        let recorder = Recorder()
+        let lifecycle = makeLifecycle(recorder)
+        lifecycle.refresh(reason: "test", removeItems: { recorder.events.append("remove") }) { _ in
+            recorder.events.append("start")
+        }
+        XCTAssertEqual(recorder.events, ["restore", "remove", "recover", "start"])
+    }
+
+    func testDuplicateInstanceNeverRefreshes() {
+        let recorder = Recorder()
+        let lifecycle = makeLifecycle(recorder, owner: false)
+        lifecycle.refresh(reason: "test", removeItems: { recorder.events.append("remove") }) { _ in
+            recorder.events.append("start")
+        }
+        XCTAssertEqual(recorder.events, [])
+    }
+
     // A5: a duplicate shares the running instance's journal and must not
     // restore the switches that instance is holding off.
     func testDuplicateInstanceTerminatesWithoutRestoring() {

@@ -99,6 +99,19 @@ final class AppLifecycle {
         return .terminateNow
     }
 
+    // #30: the menu bar can stop drawing Hidden Bar's arrow and the icons it turns
+    // back on while Hidden Bar keeps running; quitting and reopening it brings them
+    // back. A refresh does the same without ending the process: restore the switches
+    // as a quit does, take the old status items out, then start a new controller
+    // through the launch path.
+    func refresh(reason: String, removeItems: () -> Void, start: (_ recovered: Bool) -> Void) {
+        guard isOwner() else { return }
+        let restored = restore()
+        Self.log.notice("Refresh (\(reason, privacy: .public)): switches \(restored ? "restored" : "not restored", privacy: .public)")
+        removeItems()
+        launch(start: start)
+    }
+
     // SIGTERM (pkill, the install script) and SIGINT (Ctrl-C) end the process
     // without AppKit's termination, leaving switches off until the next launch.
     // The default action is ignored first, or it would kill the process before
@@ -115,6 +128,10 @@ final class AppLifecycle {
         }
     }
 
+    static func logDisplayChange(_ configuration: DisplayConfiguration) {
+        log.notice("Displays changed: \(configuration.description, privacy: .public)")
+    }
+
     private static func log(_ outcome: TerminationOutcome) {
         switch outcome {
         case .restored:
@@ -124,5 +141,29 @@ final class AppLifecycle {
         case .skippedDuplicate:
             log.notice("Quit: duplicate instance exits without touching the recovery journal")
         }
+    }
+}
+
+// The attached screens. The screen-parameters notification also fires when only
+// the Dock or a visible frame moves; a refresh follows only a changed set of
+// screens (hot-plug, lid, resolution), the change upstream #390 reports.
+struct DisplayConfiguration: Equatable, CustomStringConvertible {
+    struct Screen: Equatable {
+        let id: UInt32
+        let frame: CGRect
+    }
+
+    let screens: [Screen]
+
+    static var current: DisplayConfiguration {
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+        return DisplayConfiguration(screens: NSScreen.screens.map { screen in
+            Screen(id: (screen.deviceDescription[key] as? NSNumber)?.uint32Value ?? 0, frame: screen.frame)
+        })
+    }
+
+    var description: String {
+        screens.map { "\($0.id) \(Int($0.frame.width))x\(Int($0.frame.height))@\(Int($0.frame.minX)),\(Int($0.frame.minY))" }
+            .joined(separator: "; ")
     }
 }
