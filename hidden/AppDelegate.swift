@@ -31,7 +31,9 @@ class AppDelegate: NSObject, NSApplicationDelegate{
     private lazy var lifecycle = AppLifecycle(
         isOwner: { [weak self] in self?.ownsRecoveryJournal ?? false },
         recover: AppDelegate.recoverMenuBarSettings,
-        restore: { [weak self] in self?.statusBarController?.restoreAll() ?? true })
+        restore: { [weak self] in self?.statusBarController?.restoreAll() ?? true },
+        repairStuck: AppDelegate.repairStuckSwitches,
+        reloadMenuBar: AppDelegate.reloadMenuBarAgent)
 
     #if HIDDENBAR_UPDATER
     // The fork's own updater: checks floweredao/hidden's appcast (SUFeedURL) and
@@ -109,7 +111,6 @@ class AppDelegate: NSObject, NSApplicationDelegate{
     func restoreAllIcons() {
         guard let old = statusBarController else { return }
         lifecycle.restoreAllIcons(restoreRecorded: AppDelegate.restoreRecordedSwitches,
-                                  reloadMenuBar: AppDelegate.reloadMenuBarAgent,
                                   removeItems: { old.removeItems() }) { _ in
             statusBarController = StatusBarController()
         }
@@ -120,6 +121,14 @@ class AppDelegate: NSObject, NSApplicationDelegate{
         return MenuBarAllowListBridge.shared.restoreRecordedSwitches()
         #else
         return true
+        #endif
+    }
+
+    private static func repairStuckSwitches() -> StuckSwitchRepair {
+        #if HIDDENBAR_NATIVE_VISIBILITY
+        return MenuBarAllowListBridge.shared.repairStuckSwitches()
+        #else
+        return .nothingStuck
         #endif
     }
 

@@ -117,10 +117,13 @@ final class AppLifecycleTests: XCTestCase {
     }
 
     private func makeLifecycle(_ recorder: Recorder, owner: Bool = true,
-                               recovers: Bool = true, restores: Bool = true) -> AppLifecycle {
+                               recovers: Bool = true, restores: Bool = true,
+                               repair: StuckSwitchRepair = .nothingStuck) -> AppLifecycle {
         AppLifecycle(isOwner: { owner },
                      recover: { recorder.events.append("recover"); return recovers },
                      restore: { recorder.events.append("restore"); return restores },
+                     repairStuck: { recorder.events.append("repair"); return repair },
+                     reloadMenuBar: { recorder.events.append("reload") },
                      report: { recorder.outcomes.append($0) })
     }
 
@@ -156,17 +159,38 @@ final class AppLifecycleTests: XCTestCase {
         let recorder = Recorder()
         let lifecycle = makeLifecycle(recorder)
         XCTAssertEqual(lifecycle.shouldTerminate(), .terminateNow)
-        XCTAssertEqual(recorder.events, ["restore"])
+        XCTAssertEqual(recorder.events, ["restore", "repair"])
         XCTAssertEqual(recorder.outcomes, [.restored])
+    }
+
+    // #50 follow-up: icons MenuBarAgent still holds hidden come back on quit without the
+    // menu item. The reload (the menu bar blinks) happens only after a stuck switch was repaired.
+    func testQuitRepairsStuckSwitchesAndReloadsMenuBar() {
+        let recorder = Recorder()
+        let lifecycle = makeLifecycle(recorder, repair: .repaired)
+        XCTAssertEqual(lifecycle.shouldTerminate(), .terminateNow)
+        XCTAssertEqual(recorder.events, ["restore", "repair", "reload"])
+        XCTAssertEqual(recorder.outcomes, [.restored])
+    }
+
+    func testQuitWithNothingStuckOrAFailedRepairNeverReloadsMenuBar() {
+        for repair in [StuckSwitchRepair.nothingStuck, .failed] {
+            let recorder = Recorder()
+            let lifecycle = makeLifecycle(recorder, repair: repair)
+            XCTAssertEqual(lifecycle.shouldTerminate(), .terminateNow)
+            XCTAssertEqual(recorder.events, ["restore", "repair"], "\(repair)")
+        }
     }
 
     // L2: a failed restore keeps the journal (the bridge does not clear it) and
     // is reported, but never traps the user in an app that cannot quit.
     func testQuitRestoreFailureIsReportedAndStillTerminates() {
         let recorder = Recorder()
-        let lifecycle = makeLifecycle(recorder, restores: false)
+        let lifecycle = makeLifecycle(recorder, restores: false, repair: .repaired)
         XCTAssertEqual(lifecycle.shouldTerminate(), .terminateNow)
         XCTAssertEqual(recorder.outcomes, [.restoreFailed])
+        // Switches still held off stay journaled; the repair waits for a restore that worked.
+        XCTAssertEqual(recorder.events, ["restore"])
     }
 
     // L3: a journal left by a crash must be recovered even when the backend
@@ -175,7 +199,16 @@ final class AppLifecycleTests: XCTestCase {
         let recorder = Recorder()
         let lifecycle = makeLifecycle(recorder)
         lifecycle.launch { _ in recorder.events.append("start") }
-        XCTAssertEqual(recorder.events, ["recover", "start"])
+        XCTAssertEqual(recorder.events, ["recover", "repair", "start"])
+    }
+
+    // A crash or force quit skips the quit repair, so launch repairs too, and MenuBarAgent
+    // reloads before the controller creates its items.
+    func testLaunchRepairsStuckSwitchesAndReloadsMenuBarBeforeControllerStarts() {
+        let recorder = Recorder()
+        let lifecycle = makeLifecycle(recorder, repair: .repaired)
+        lifecycle.launch { _ in recorder.events.append("start") }
+        XCTAssertEqual(recorder.events, ["recover", "repair", "reload", "start"])
     }
 
     // L3: the controller (and its initial collapse) starts only after recovery
@@ -198,7 +231,7 @@ final class AppLifecycleTests: XCTestCase {
         lifecycle.refresh(reason: "test", removeItems: { recorder.events.append("remove") }) { _ in
             recorder.events.append("start")
         }
-        XCTAssertEqual(recorder.events, ["restore", "remove", "recover", "start"])
+        XCTAssertEqual(recorder.events, ["restore", "remove", "recover", "repair", "start"])
     }
 
     // #50: MenuBarAgent can keep icons hidden after their switches read on again, so
@@ -208,18 +241,16 @@ final class AppLifecycleTests: XCTestCase {
         let recorder = Recorder()
         let lifecycle = makeLifecycle(recorder)
         lifecycle.restoreAllIcons(restoreRecorded: { recorder.events.append("recorded"); return true },
-                                  reloadMenuBar: { recorder.events.append("reload") },
                                   removeItems: { recorder.events.append("remove") }) { _ in
             recorder.events.append("start")
         }
-        XCTAssertEqual(recorder.events, ["restore", "recorded", "remove", "reload", "recover", "start"])
+        XCTAssertEqual(recorder.events, ["restore", "recorded", "remove", "reload", "recover", "repair", "start"])
     }
 
     func testDuplicateInstanceNeverRestoresAllIcons() {
         let recorder = Recorder()
         let lifecycle = makeLifecycle(recorder, owner: false)
         lifecycle.restoreAllIcons(restoreRecorded: { recorder.events.append("recorded"); return true },
-                                  reloadMenuBar: { recorder.events.append("reload") },
                                   removeItems: { recorder.events.append("remove") }) { _ in
             recorder.events.append("start")
         }
@@ -239,8 +270,9 @@ final class AppLifecycleTests: XCTestCase {
     // restore the switches that instance is holding off.
     func testDuplicateInstanceTerminatesWithoutRestoring() {
         let recorder = Recorder()
-        let lifecycle = makeLifecycle(recorder, owner: false)
+        let lifecycle = makeLifecycle(recorder, owner: false, repair: .repaired)
         XCTAssertEqual(lifecycle.shouldTerminate(), .terminateNow)
+        // Nor repair or reload: the running instance may be holding those switches off.
         XCTAssertEqual(recorder.events, [])
         XCTAssertEqual(recorder.outcomes, [.skippedDuplicate])
     }

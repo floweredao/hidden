@@ -1029,6 +1029,66 @@ final class MenuBarAllowListBridgeTests: XCTestCase {
         XCTAssertEqual(value(store, 1)["isAllowed"] as? Bool, false)
     }
 
+    // #50 follow-up: quit and launch run this on their own, so it reports whether anything
+    // was stuck; only then does MenuBarAgent get reloaded (the menu bar blinks).
+    func testRepairStuckSwitchesTurnsBackOnWrittenBackSwitchThenFindsNothingStuck() throws {
+        let store = Store(entries(["a", "b"]))
+        let bridge = bridge(store, running: ["a", "b"])
+        var result: Result<NativeVisibilityAssertion, Error>?
+        bridge.activate(allowedSystemItems: [], allowedBundleIdentifiers: ["b"],
+                        hiddenBundleIdentifiers: ["a"]) { result = $0 }
+        _ = try XCTUnwrap(result).get()
+        XCTAssertTrue(bridge.restoreAll())
+        // MenuBarAgent persists its stale copy of a; the user switched b off, and Hidden Bar never turned b off.
+        value(store, 0)["isAllowed"] = false
+        value(store, 1)["isAllowed"] = false
+
+        XCTAssertEqual(bridge.repairStuckSwitches(), .repaired)
+        XCTAssertEqual(value(store, 0)["isAllowed"] as? Bool, true)
+        XCTAssertEqual(value(store, 1)["isAllowed"] as? Bool, false)
+        let writes = store.writes
+        XCTAssertEqual(bridge.repairStuckSwitches(), .nothingStuck)
+        XCTAssertEqual(store.writes, writes)
+    }
+
+    // A normal hide and restore leaves nothing to repair, even after MenuBarAgent registers the
+    // app's location on its own; otherwise every quit and launch would blink the menu bar.
+    func testRepairStuckSwitchesAfterCleanRestoreNeverWrites() throws {
+        let store = Store(entries(["a"]))
+        value(store)["menuItemLocations"] = NSMutableArray(object: path("Old"))
+        let bridge = bridge(store)
+        let handle = try activate(bridge)
+        XCTAssertTrue(handle.invalidate())
+        value(store)["menuItemLocations"] = NSMutableArray(array: [path("Old"), self.bundle("a")])
+        let writes = store.writes
+        XCTAssertEqual(bridge.repairStuckSwitches(), .nothingStuck)
+        XCTAssertEqual(store.writes, writes)
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, true)
+    }
+
+    // A switch the user changed while Hidden Bar held it off is the user's from then on.
+    func testRepairStuckSwitchesLeavesSwitchTheUserChangedWhileHeld() throws {
+        let store = Store(entries(["a"]))
+        let bridge = bridge(store)
+        let first = try activate(bridge)
+        value(store)["isAllowed"] = true
+        let second = try activate(bridge, keeping: ["a"])
+        value(store)["isAllowed"] = false
+        XCTAssertTrue(first.invalidate())
+        XCTAssertTrue(second.invalidate())
+        XCTAssertEqual(bridge.repairStuckSwitches(), .nothingStuck)
+        XCTAssertEqual(value(store)["isAllowed"] as? Bool, false)
+    }
+
+    func testRepairStuckSwitchesReportsAFailedWrite() throws {
+        let store = Store(entries(["a"]))
+        let bridge = bridge(store)
+        XCTAssertTrue(try activate(bridge).invalidate())
+        value(store)["isAllowed"] = false
+        store.failWrites = true
+        XCTAssertEqual(bridge.repairStuckSwitches(), .failed)
+    }
+
     func testJournalSynchronizationFailureNeverWritesSwitches() {
         let store = Store(entries(["a"]))
         let bridge = bridge(store, synchronize: { false })

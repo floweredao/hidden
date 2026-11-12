@@ -57,15 +57,21 @@ final class AppLifecycle {
     private let isOwner: () -> Bool
     private let recover: () -> Bool
     private let restore: () -> Bool
+    private let repairStuck: () -> StuckSwitchRepair
+    private let reloadMenuBar: () -> Void
     private let report: (TerminationOutcome) -> Void
 
     init(isOwner: @escaping () -> Bool,
          recover: @escaping () -> Bool,
          restore: @escaping () -> Bool,
+         repairStuck: @escaping () -> StuckSwitchRepair,
+         reloadMenuBar: @escaping () -> Void,
          report: @escaping (TerminationOutcome) -> Void = AppLifecycle.log(_:)) {
         self.isOwner = isOwner
         self.recover = recover
         self.restore = restore
+        self.repairStuck = repairStuck
+        self.reloadMenuBar = reloadMenuBar
         self.report = report
     }
 
@@ -75,10 +81,27 @@ final class AppLifecycle {
     // switched off, and with no journal the bridge does nothing.
     func launch(start: (_ recovered: Bool) -> Void) {
         let recovered = recover()
-        if !recovered {
+        if recovered {
+            repairIfStuck("Launch")
+        } else {
             Self.log.error("Launch recovery failed; the recovery journal is kept")
         }
         start(recovered)
+    }
+
+    // #50: MenuBarAgent can keep icons hidden, and write their switches back off, after
+    // Hidden Bar turned them on again. Quit and launch repair that on their own; MenuBarAgent
+    // reloads the switches (the menu bar blinks) only when a stuck switch was turned back on.
+    private func repairIfStuck(_ moment: String) {
+        switch repairStuck() {
+        case .nothingStuck:
+            break
+        case .repaired:
+            Self.log.notice("\(moment, privacy: .public): stuck switches turned back on; reloading MenuBarAgent")
+            reloadMenuBar()
+        case .failed:
+            Self.log.error("\(moment, privacy: .public): repairing stuck switches failed")
+        }
     }
 
     // The process must not end before the switches are back on. A failed
@@ -95,7 +118,9 @@ final class AppLifecycle {
         // .terminateLater does not work: AppKit's wait loop does not drain the
         // main dispatch queue, so the reply never came and the app could no
         // longer quit at all.
-        report(restore() ? .restored : .restoreFailed)
+        let restored = restore()
+        if restored { repairIfStuck("Quit") }
+        report(restored ? .restored : .restoreFailed)
         return .terminateNow
     }
 
@@ -116,7 +141,7 @@ final class AppLifecycle {
     // after Hidden Bar quits. Restore All Icons restores as a refresh does, also turns
     // back on every switch Hidden Bar's records show it turned off, and has MenuBarAgent
     // reload the switches before the controller starts again.
-    func restoreAllIcons(restoreRecorded: () -> Bool, reloadMenuBar: () -> Void,
+    func restoreAllIcons(restoreRecorded: () -> Bool,
                          removeItems: () -> Void, start: (_ recovered: Bool) -> Void) {
         guard isOwner() else { return }
         let restored = restore()
