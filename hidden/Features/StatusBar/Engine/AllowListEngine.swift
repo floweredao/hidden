@@ -256,7 +256,10 @@ final class AllowListEngine: MenuBarEngine {
                 let layout = MenuBarLayoutResolver.resolve(inventory: snapshot.items,
                     separatorFrame: boundary, alwaysHiddenSeparatorFrame: always,
                     isLTR: self.isLTR(), excludingBundle: self.ownBundle)
-                var fresh = layout.sections.filter { !snapshot.unreadableBundles.contains($0.key) }
+                // On a fullscreen space the bar is hidden and no app reports its items;
+                // a read that sees none keeps the sections already known (#45).
+                var fresh = layout.sections.isEmpty ? self.sections
+                    : layout.sections.filter { !snapshot.unreadableBundles.contains($0.key) }
                 // Hidden frames are stale even when AX still returns them.
                 for bundle in self.hidden { fresh[bundle] = self.sections[bundle] }
                 self.sections = fresh
