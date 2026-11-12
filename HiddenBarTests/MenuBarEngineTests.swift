@@ -533,6 +533,27 @@ final class AllowListEngineTests: XCTestCase {
         complete(bridge.requests.count - 1)
     }
 
+    // #45: on a fullscreen space the menu bar is hidden and Accessibility reports no
+    // app's status items, so a read there must not replace the known sections.
+    func testCollapseOnFullscreenSpaceKeepsCachedSections() {
+        let engine = makeEngine()
+        snapshot(engine)
+        engine.apply(collapsed: true, alwaysHiddenShown: true)
+        snapshot(engine)
+        complete(0)
+        engine.apply(collapsed: false, alwaysHiddenShown: true)
+        writer.run()
+        snapshot(engine)
+        inventory.items = [item("com.apple.MenuBarAgent", x: 1400)]
+        inventory.noIconBundles = ["com.always", "com.hidden", "com.visible"]
+        let requests = bridge.requests.count
+        engine.apply(collapsed: true, alwaysHiddenShown: true)
+        snapshot(engine)
+        XCTAssertEqual(bridge.requests.count, requests + 1, "the collapse writes a hide, not a restore")
+        XCTAssertEqual(bridge.requests.last?.hidden, ["com.always", "com.hidden"])
+        complete(bridge.requests.count - 1)
+    }
+
     func testCollapseWithoutAccessibilityStillHidesCachedSections() {
         let engine = makeEngine()
         snapshot(engine)
