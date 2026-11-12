@@ -221,6 +221,15 @@ final class StatusBarController: MenuBarItemProvider {
     }
 
     @objc private func handleScreenParametersChanged() { menuBarEngine.invalidateLayout() }
+
+    // A refresh replaces this controller (#30). Its items go first, so the new ones
+    // take their saved places instead of sitting beside these.
+    func removeItems() {
+        timer?.invalidate()
+        launchTimer?.invalidate()
+        [btnExpandCollapse, btnSeparate, btnAlwaysHidden].compactMap { $0 }.forEach(NSStatusBar.system.removeStatusItem)
+        btnAlwaysHidden = nil
+    }
     func refreshArrangement() { menuBarEngine.refreshArrangement() }
     @discardableResult func restoreAll() -> Bool { menuBarEngine.restoreAll() }
 
@@ -325,6 +334,10 @@ final class StatusBarController: MenuBarItemProvider {
         }
         #endif
 
+        let refreshItem = NSMenuItem(title: "Refresh Menu Bar".localized, action: #selector(refreshMenuBar), keyEquivalent: "")
+        refreshItem.target = self
+        menu.addItem(refreshItem)
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit".localized, action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
@@ -336,6 +349,12 @@ final class StatusBarController: MenuBarItemProvider {
         #if HIDDENBAR_NATIVE_VISIBILITY
         (menuBarEngine as? AllowListEngine)?.requestAccess()
         #endif
+    }
+    // Does what quitting and reopening Hidden Bar does, after this menu has closed.
+    @objc func refreshMenuBar() {
+        DispatchQueue.main.async {
+            (NSApp.delegate as? AppDelegate)?.refreshMenuBar(reason: "menu")
+        }
     }
     @objc func updateAutoHide() { autoCollapseIfNeeded() }
     @objc func openPreferenceViewControllerIfNeeded() { Util.showPrefWindow() }
