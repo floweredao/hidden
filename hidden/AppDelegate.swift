@@ -106,6 +106,31 @@ class AppDelegate: NSObject, NSApplicationDelegate{
         }
     }
 
+    func restoreAllIcons() {
+        guard let old = statusBarController else { return }
+        lifecycle.restoreAllIcons(restoreRecorded: AppDelegate.restoreRecordedSwitches,
+                                  reloadMenuBar: AppDelegate.reloadMenuBarAgent,
+                                  removeItems: { old.removeItems() }) { _ in
+            statusBarController = StatusBarController()
+        }
+    }
+
+    private static func restoreRecordedSwitches() -> Bool {
+        #if HIDDENBAR_NATIVE_VISIBILITY
+        return MenuBarAllowListBridge.shared.restoreRecordedSwitches()
+        #else
+        return true
+        #endif
+    }
+
+    // #50: MenuBarAgent reads the switches again only when it starts; launchd starts it
+    // again at once (the menu bar blinks). Without MenuBarAgent (before macOS 27) this does nothing.
+    private static func reloadMenuBarAgent() {
+        for agent in NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.MenuBarAgent") {
+            kill(agent.processIdentifier, SIGTERM)
+        }
+    }
+
     // Recovery runs before the controller regardless of which engine this launch picks.
     // With no journal the bridge returns without changing any switches.
     private static func recoverMenuBarSettings() -> Bool {

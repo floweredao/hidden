@@ -201,6 +201,31 @@ final class AppLifecycleTests: XCTestCase {
         XCTAssertEqual(recorder.events, ["restore", "remove", "recover", "start"])
     }
 
+    // #50: MenuBarAgent can keep icons hidden after their switches read on again, so
+    // Restore All Icons also repairs the recorded switches and has MenuBarAgent reload
+    // them before the controller starts again.
+    func testRestoreAllIconsRepairsSwitchesAndReloadsMenuBarBeforeRelaunching() {
+        let recorder = Recorder()
+        let lifecycle = makeLifecycle(recorder)
+        lifecycle.restoreAllIcons(restoreRecorded: { recorder.events.append("recorded"); return true },
+                                  reloadMenuBar: { recorder.events.append("reload") },
+                                  removeItems: { recorder.events.append("remove") }) { _ in
+            recorder.events.append("start")
+        }
+        XCTAssertEqual(recorder.events, ["restore", "recorded", "remove", "reload", "recover", "start"])
+    }
+
+    func testDuplicateInstanceNeverRestoresAllIcons() {
+        let recorder = Recorder()
+        let lifecycle = makeLifecycle(recorder, owner: false)
+        lifecycle.restoreAllIcons(restoreRecorded: { recorder.events.append("recorded"); return true },
+                                  reloadMenuBar: { recorder.events.append("reload") },
+                                  removeItems: { recorder.events.append("remove") }) { _ in
+            recorder.events.append("start")
+        }
+        XCTAssertEqual(recorder.events, [])
+    }
+
     func testDuplicateInstanceNeverRefreshes() {
         let recorder = Recorder()
         let lifecycle = makeLifecycle(recorder, owner: false)
