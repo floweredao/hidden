@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.11.1-fw.6 (2026-11-13)
+
+Fork release of floweredao/hidden, based on upstream v1.11.1.
+
+### Added
+- **Restore All Icons** (context menu): turns back on every "Allow in the Menu Bar" switch Hidden Bar turned off, including ones macOS kept off after a restore, and restarts the menu bar so it reloads them (the bar blinks once) (#50).
+- **Refresh Menu Bar** (context menu): does what quitting and reopening Hidden Bar does, without quitting. It also runs by itself 2 s after a display is connected, disconnected or changes size (#30, mitigation).
+
+### Fixed
+- macOS 27 (direct build): icons macOS keeps hidden after Hidden Bar turned their switch back on now come back by themselves on quit and on the next launch. The menu bar blinks once, and only when something was stuck (#50).
+- macOS 27: an icon Cmd-dragged across the arrow, or an app whose icon appeared after the last read, is now hidden on the next collapse. Before, it kept its old section until relaunch (#43, #33).
+- macOS 27: on a fullscreen space, where macOS hides the menu bar, a collapse no longer forgets every icon section and leaves the bar unhidden after you leave the space (#45).
+- Korean translation for **Refresh Menu Bar** (#48).
+
 ## v1.11.1-fw.5 (2026-11-01)
 
 Fork release of floweredao/hidden, based on upstream v1.11.1.
