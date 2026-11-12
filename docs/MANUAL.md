@@ -32,6 +32,13 @@ each toggle. The first collapse shows an Open panel: select
 apps' data). Switch it off with
 `defaults write com.dwarvesv.minimalbar hidesWithMenuBarSettings -bool NO`.
 
+macOS can keep an icon hidden after Hidden Bar turned its switch back on, and
+later write the switch back off. On quit and at the next launch Hidden Bar turns
+back on every switch it had turned off that reads off again, and only then
+restarts MenuBarAgent so it reloads them (the menu bar blinks once). Switches you
+changed yourself stay as they are. **Restore All Icons** in the menu does the
+same on demand.
+
 With that off, macOS 27 collapses into macOS's own « menu (every build). The
 `|` separator is the boundary, as on macOS 26: ⌘-drag the icons to hide to its
 left, and the always-hidden `|` further left still. Collapsing makes `|` just

@@ -19,6 +19,14 @@ extension NativeVisibilityAssertion {
     var unmatchedHiddenBundleIdentifiers: Set<String> { [] }
 }
 
+// What the automatic check at quit and launch found (#50). Only .repaired calls for a
+// MenuBarAgent reload, which blinks the whole menu bar.
+enum StuckSwitchRepair: Equatable {
+    case nothingStuck
+    case repaired
+    case failed
+}
+
 protocol NativeVisibilityProviding: AnyObject {
     var isAvailable: Bool { get }
     var unavailableReason: HidingUnavailableReason { get }
@@ -228,13 +236,31 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
     // out Hidden Bar's own location additions. Switches it never turned off stay as they are.
     @discardableResult func restoreRecordedSwitches() -> Bool {
         guard restoreAll() else { return false }
+        return turnOnRecordedSwitches(onlyStuck: false) != .failed
+    }
+
+    // #50 follow-up: quit and launch run this on their own. It turns back on only the
+    // switches Hidden Bar turned off that read off again (MenuBarAgent wrote its stale
+    // value back). Switches the user changed while Hidden Bar held them (retired records)
+    // and switches that read on are left as they are, so a normal quit changes nothing.
+    func repairStuckSwitches() -> StuckSwitchRepair {
+        guard restoreAll() else { return .failed }
+        return turnOnRecordedSwitches(onlyStuck: true)
+    }
+
+    private func turnOnRecordedSwitches(onlyStuck: Bool) -> StuckSwitchRepair {
         var recorded = AllowList.Journal()
+        var userChanged = Set<String>()
         for key in [Self.completedKey, Self.retiredKey] {
             guard let data = defaults.data(forKey: key),
                   let records = try? PropertyListDecoder().decode(AllowList.Journal.self, from: data) else { continue }
+            if key == Self.retiredKey { userChanged.formUnion(records.keys) }
             recorded.merge(records) { old, _ in old }
         }
-        guard !recorded.isEmpty else { return true }
+        if onlyStuck {
+            recorded = recorded.filter { !userChanged.contains($0.key) }
+        }
+        guard !recorded.isEmpty else { return .nothingStuck }
         do {
             let entries = try readTracked()
             var changed = false
@@ -242,6 +268,9 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
                 guard let key = entries[index] as? NSDictionary, let id = AllowList.identity(key),
                       let record = recorded[id], record.original,
                       let value = entries[index + 1] as? NSMutableDictionary else { continue }
+                // MenuBarAgent can register an app's location again on its own; removing it
+                // from a switch that reads on would make every quit and launch blink.
+                if onlyStuck && value["isAllowed"] as? Bool != false { continue }
                 if !record.addedLocations.isEmpty,
                    let locations = (value["menuItemLocations"] as? NSArray)?.mutableCopy() as? NSMutableArray {
                     let count = locations.count
@@ -262,19 +291,19 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
                     changed = true
                 }
             }
-            guard changed else { return true }
+            guard changed else { return .nothingStuck }
             try writeTracked(entries)
             guard entries.isEqual(try readTracked()) else {
                 diagnostic(.writeMismatch)
-                return false
+                return .failed
             }
             os_log("Recorded switches turned back on", log: Self.log, type: .info)
-            return true
+            return .repaired
         } catch {
             os_log("Restoring recorded switches failed: %{public}@", log: Self.log, type: .error,
                    error.localizedDescription)
             diagnostic(.restoreFailed)
-            return false
+            return .failed
         }
     }
 
