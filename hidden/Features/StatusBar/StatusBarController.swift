@@ -338,6 +338,10 @@ final class StatusBarController: MenuBarItemProvider {
         refreshItem.target = self
         menu.addItem(refreshItem)
 
+        let restoreItem = NSMenuItem(title: "Restore All Icons".localized, action: #selector(restoreAllIcons), keyEquivalent: "")
+        restoreItem.target = self
+        menu.addItem(restoreItem)
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit".localized, action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
@@ -354,6 +358,12 @@ final class StatusBarController: MenuBarItemProvider {
     @objc func refreshMenuBar() {
         DispatchQueue.main.async {
             (NSApp.delegate as? AppDelegate)?.refreshMenuBar(reason: "menu")
+        }
+    }
+    // Brings back icons macOS keeps hidden after their switches are on again (#50).
+    @objc func restoreAllIcons() {
+        DispatchQueue.main.async {
+            (NSApp.delegate as? AppDelegate)?.restoreAllIcons()
         }
     }
     @objc func updateAutoHide() { autoCollapseIfNeeded() }

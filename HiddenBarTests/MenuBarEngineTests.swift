@@ -1003,6 +1003,32 @@ final class MenuBarAllowListBridgeTests: XCTestCase {
         }
     }
 
+    // #50: MenuBarAgent can keep an app hidden after its switch reads on again and later
+    // write that stale value back, where no journal covers it any more. Restore All Icons
+    // turns back on what Hidden Bar turned off, and leaves other switched-off apps alone.
+    func testRestoreRecordedSwitchesTurnsBackOnSwitchesWrittenBackAfterRestore() throws {
+        let store = Store(entries(["a", "b"]))
+        // An entry left by an old build: the hide adds the app's bundle location.
+        value(store, 0)["menuItemLocations"] = NSMutableArray(object: path("Old"))
+        let bridge = bridge(store, running: ["a", "b"])
+        var result: Result<NativeVisibilityAssertion, Error>?
+        bridge.activate(allowedSystemItems: [], allowedBundleIdentifiers: ["b"],
+                        hiddenBundleIdentifiers: ["a"]) { result = $0 }
+        _ = try XCTUnwrap(result).get()
+        XCTAssertTrue(bridge.restoreAll())
+        // MenuBarAgent persists its stale copy of a; b is switched off by the user.
+        value(store, 0)["isAllowed"] = false
+        value(store, 0)["menuItemLocations"] = NSMutableArray(array: [path("Old"), self.bundle("a")])
+        value(store, 1)["isAllowed"] = false
+        XCTAssertTrue(bridge.restoreAll())
+        XCTAssertEqual(value(store, 0)["isAllowed"] as? Bool, false, "no journal covers a after its restore")
+
+        XCTAssertTrue(bridge.restoreRecordedSwitches())
+        XCTAssertEqual(value(store, 0)["isAllowed"] as? Bool, true)
+        XCTAssertEqual(value(store, 0)["menuItemLocations"] as? NSArray, NSArray(object: path("Old")))
+        XCTAssertEqual(value(store, 1)["isAllowed"] as? Bool, false)
+    }
+
     func testJournalSynchronizationFailureNeverWritesSwitches() {
         let store = Store(entries(["a"]))
         let bridge = bridge(store, synchronize: { false })

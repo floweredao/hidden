@@ -112,6 +112,21 @@ final class AppLifecycle {
         launch(start: start)
     }
 
+    // #50: MenuBarAgent can keep icons hidden after their switches read on again, even
+    // after Hidden Bar quits. Restore All Icons restores as a refresh does, also turns
+    // back on every switch Hidden Bar's records show it turned off, and has MenuBarAgent
+    // reload the switches before the controller starts again.
+    func restoreAllIcons(restoreRecorded: () -> Bool, reloadMenuBar: () -> Void,
+                         removeItems: () -> Void, start: (_ recovered: Bool) -> Void) {
+        guard isOwner() else { return }
+        let restored = restore()
+        let recorded = restoreRecorded()
+        Self.log.notice("Restore All Icons: switches \(restored ? "restored" : "not restored", privacy: .public), recorded switches \(recorded ? "restored" : "not restored", privacy: .public)")
+        removeItems()
+        reloadMenuBar()
+        launch(start: start)
+    }
+
     // SIGTERM (pkill, the install script) and SIGINT (Ctrl-C) end the process
     // without AppKit's termination, leaving switches off until the next launch.
     // The default action is ignored first, or it would kill the process before

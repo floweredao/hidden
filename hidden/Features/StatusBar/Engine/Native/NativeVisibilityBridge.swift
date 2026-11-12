@@ -221,6 +221,63 @@ final class MenuBarAllowListBridge: NativeVisibilityProviding {
         }
     }
 
+    // #50: MenuBarAgent applies the switches from its own copy of the list. It can keep an
+    // app hidden after restoreAll() wrote its switch back on, and later write that stale
+    // value back to the file, where no journal covers it any more. The archives keep every
+    // switch Hidden Bar turned off; this turns back on those that read off now and takes
+    // out Hidden Bar's own location additions. Switches it never turned off stay as they are.
+    @discardableResult func restoreRecordedSwitches() -> Bool {
+        guard restoreAll() else { return false }
+        var recorded = AllowList.Journal()
+        for key in [Self.completedKey, Self.retiredKey] {
+            guard let data = defaults.data(forKey: key),
+                  let records = try? PropertyListDecoder().decode(AllowList.Journal.self, from: data) else { continue }
+            recorded.merge(records) { old, _ in old }
+        }
+        guard !recorded.isEmpty else { return true }
+        do {
+            let entries = try readTracked()
+            var changed = false
+            for index in stride(from: 0, to: entries.count - entries.count % 2, by: 2) {
+                guard let key = entries[index] as? NSDictionary, let id = AllowList.identity(key),
+                      let record = recorded[id], record.original,
+                      let value = entries[index + 1] as? NSMutableDictionary else { continue }
+                if !record.addedLocations.isEmpty,
+                   let locations = (value["menuItemLocations"] as? NSArray)?.mutableCopy() as? NSMutableArray {
+                    let count = locations.count
+                    for bundle in record.addedLocations {
+                        locations.remove(["bundle": ["_0": bundle]] as NSDictionary)
+                    }
+                    if locations.count != count {
+                        if record.locationsWereAbsent && locations.count == 0 {
+                            value.removeObject(forKey: "menuItemLocations")
+                        } else {
+                            value["menuItemLocations"] = locations
+                        }
+                        changed = true
+                    }
+                }
+                if value["isAllowed"] as? Bool == false {
+                    value["isAllowed"] = true
+                    changed = true
+                }
+            }
+            guard changed else { return true }
+            try writeTracked(entries)
+            guard entries.isEqual(try readTracked()) else {
+                diagnostic(.writeMismatch)
+                return false
+            }
+            os_log("Recorded switches turned back on", log: Self.log, type: .info)
+            return true
+        } catch {
+            os_log("Restoring recorded switches failed: %{public}@", log: Self.log, type: .error,
+                   error.localizedDescription)
+            diagnostic(.restoreFailed)
+            return false
+        }
+    }
+
     func restoreAfterUnexpectedExit() {
         // Audit before recovery so unrelated disabled entries are never claimed.
         if let entries = try? readTracked() {
